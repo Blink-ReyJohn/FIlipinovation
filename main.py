@@ -11,14 +11,16 @@ users_collection = db["users"]
 
 app = FastAPI()
 
-# Pydantic model (not used in this GET endpoint, but useful for validation if POST/PUT later)
+# Pydantic model for user input (not used directly here, but kept for future use)
 class UserRequest(BaseModel):
     user_id: str
 
-# Convert MongoDB document to JSON-safe dict
+# Convert MongoDB document to JSON-safe dict, excluding '_id' field
 def serialize_user(user):
-    user.pop('_id', None)  # Remove MongoDB internal ID
-    return user
+    if user:
+        user.pop('_id', None)  # Remove MongoDB internal ID
+        return user
+    return None
 
 @app.get("/check_user/{user_id}")
 async def check_user(user_id: str):
@@ -27,14 +29,17 @@ async def check_user(user_id: str):
     Handles potential errors such as missing user or database issues.
     """
     try:
-        # Search for user by user_id
+        # Search for user by user_id in the MongoDB collection
         user = users_collection.find_one({"user_id": user_id})
         
         if user:
+            serialized_user = serialize_user(user)
+            # Log the user data for debugging
+            print(f"User found: {serialized_user}")
             return {
                 "status": "success",
                 "message": f"User with ID {user_id} found.",
-                "user": serialize_user(user)
+                "data": serialized_user  # Return the serialized user data
             }
         else:
             raise HTTPException(status_code=404, detail=f"User with ID {user_id} not found.")
