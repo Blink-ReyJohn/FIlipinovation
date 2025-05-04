@@ -41,10 +41,15 @@ def format_date(date_str: str) -> str:
             # If the first format fails, try another common format, e.g., "01-05-2025"
             date_obj = datetime.strptime(date_str, "%d-%m-%Y")
         except ValueError:
-            # If both formats fail, raise an error
-            raise HTTPException(status_code=400, detail="Invalid date format. Please use 'YYYY-MM-DD' or 'DD-MM-YYYY'.")
-
+            try:
+                # If the second format fails, try the format "May 7, 2025"
+                date_obj = datetime.strptime(date_str, "%b %d, %Y")
+            except ValueError:
+                # If all formats fail, raise an error
+                raise HTTPException(status_code=400, detail="Invalid date format. Please use 'YYYY-MM-DD', 'DD-MM-YYYY', or 'Month D, YYYY'.")
+    
     return date_obj.strftime("%Y-%m-%d")
+
 
 # Helper function to convert the time format to "HH:mm"
 def format_time(time_str: str) -> str:
