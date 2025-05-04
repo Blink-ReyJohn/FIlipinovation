@@ -4,7 +4,7 @@ from pymongo import MongoClient, errors
 from typing import Optional
 
 # MongoDB connection
-client = MongoClient("mongodb+srv://reyjohnandraje2002:ReyJohn17@concentrix.txv3t.mongodb.net/?retryWrites=true&w=majority&appName=Concentrix
+client = MongoClient("mongodb+srv://reyjohnandraje2002:ReyJohn17@concentrix.txv3t.mongodb.net/?retryWrites=true&w=majority&appName=Concentrix")
 db = client["Filipinovation"]
 users_collection = db["users"]
 
