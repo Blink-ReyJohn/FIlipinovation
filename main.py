@@ -55,7 +55,7 @@ def extract_names(text: str):
     pattern = r"\b[A-Z][a-z]+(?:\s[A-Z][a-z]+)+\b"
     return re.findall(pattern, text)
 
-class ResponseText(BaseModel):
+class RequestBody(BaseModel):
     ugptResponse: str
 
 @app.get("/check_user/{user_id}")
@@ -163,17 +163,20 @@ async def book_appointment(appointment_request: AppointmentRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"An unexpected error occurred: {str(e)}")
 
-@app.get("/extract_name_from_response")
-async def extract_name_from_response(ugptResponse: str):
+@app.post("/extract_name_from_response")
+async def extract_name_from_response(body: RequestBody):
     """
     Extract a doctor's name from the given generative response string.
     Handles basic URL decoding and includes original content in all responses.
     """
     try:
+        # Get the 'ugptResponse' from the body
+        ugptResponse = body.ugptResponse
+
         # Decode URL-encoded input (e.g., %20 => space)
         ugptResponse = unquote(ugptResponse)
 
-        # Ensure it's a string, even if passed as another type
+        # Ensure it's a string
         if not isinstance(ugptResponse, str):
             ugptResponse = str(ugptResponse)
 
@@ -189,7 +192,7 @@ async def extract_name_from_response(ugptResponse: str):
             )
 
         # Extract names using regex
-        names = extract_names(ugptResponse)
+        names = extract_names(ugptResponse)  # Make sure 'extract_names' is defined
         extracted_name = names[0] if names else None
 
         if not extracted_name:
@@ -221,7 +224,6 @@ async def extract_name_from_response(ugptResponse: str):
                 "message": f"Error extracting names: {str(e)}",
                 "content": ugptResponse
             }
-        )
         
 # Generic error handler
 @app.exception_handler(Exception)
