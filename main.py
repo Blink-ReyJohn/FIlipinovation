@@ -55,9 +55,6 @@ def extract_names(text: str):
     doc = nlp(text)
     return [ent.text for ent in doc.ents if ent.label_ == "PERSON"]
 
-class RequestBody(BaseModel):
-    ugptResponse: str
-
 @app.get("/check_user/{user_id}")
 async def check_user(user_id: str):
     try:
@@ -138,16 +135,10 @@ async def book_appointment(appointment_request: AppointmentRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"An unexpected error occurred: {str(e)}")
 
-@app.post("/extract_name_from_response")
-async def extract_name_from_response(body: RequestBody):
+@app.get("/extract_name_from_response")
+async def extract_name_from_response(ugptResponse: str = Query(..., description="The response string from UGPT")):
     try:
-        # Get the 'ugptResponse' from the body
-        ugptResponse = body.ugptResponse
-
-        # Ensure it's a string
-        if not isinstance(ugptResponse, str):
-            ugptResponse = str(ugptResponse)
-
+        # Ensure it's a string and clean it
         ugptResponse = ugptResponse.strip()
 
         if not ugptResponse:
@@ -159,7 +150,7 @@ async def extract_name_from_response(body: RequestBody):
                 }
             )
 
-        # Extract names using regex
+        # Extract names using spaCy
         names = extract_names(ugptResponse)
         extracted_name = names[0] if names else None
 
@@ -184,7 +175,7 @@ async def extract_name_from_response(body: RequestBody):
         }
 
     except HTTPException as he:
-        raise he  # Already structured
+        raise he
     except Exception as e:
         raise HTTPException(
             status_code=500,
@@ -193,6 +184,7 @@ async def extract_name_from_response(body: RequestBody):
                 "content": ugptResponse
             }
         )
+
 
 # Generic error handler
 @app.exception_handler(Exception)
