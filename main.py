@@ -1,5 +1,5 @@
 import re
-from fastapi import FastAPI, HTTPException, Request, Body
+from fastapi import FastAPI, HTTPException, Request, Body, Query
 from pydantic import BaseModel
 from pymongo import MongoClient, errors
 from typing import Optional
@@ -163,22 +163,28 @@ async def book_appointment(appointment_request: AppointmentRequest):
         raise HTTPException(status_code=500, detail=f"An unexpected error occurred: {str(e)}")
 
 @app.get("/extract_name_from_response")
-async def extract_name_from_response(ugptResponse: str):
+async def extract_name_from_response(ugptResponse: str = Query(..., description="UGPT response text to extract doctor's name")):
     """
     Extract a doctor's name from the given generative response string.
     """
     try:
-        if not ugptResponse.strip():
-            raise HTTPException(status_code=400, detail="The 'ugptResponse' parameter cannot be empty.")
+        # Ensure it's a string and clean it up
+        if not isinstance(ugptResponse, str):
+            ugptResponse = str(ugptResponse)
+        ugptResponse = ugptResponse.strip()
+
+        if not ugptResponse:
+            raise HTTPException(status_code=400, detail="The 'ugptResponse' parameter cannot be empty or whitespace.")
 
         # Extract names
         names = extract_names(ugptResponse)
         extracted_name = names[0] if names else None
 
+        # Build response
         if not extracted_name:
             return {
                 "status": "warning",
-                "message": "No names were found in the response.",
+                "message": "No doctor name found in the input string.",
                 "data": {
                     "String": ugptResponse,
                     "Doctor": None
