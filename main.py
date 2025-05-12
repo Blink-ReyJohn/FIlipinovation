@@ -136,18 +136,23 @@ async def get_nearest_available_doctor(user_id: str, doctor_specialization: str)
     try:
         # Fetch user data
         user = users_collection.find_one({"user_id": user_id})
+        
         if not user:
             raise HTTPException(status_code=404, detail="User not found.")
         
+        # Ensure user has coordinates (latitude and longitude)
         user_coords = (user.get("latitude"), user.get("longitude"))
         if None in user_coords:
             raise HTTPException(status_code=400, detail="User coordinates are missing.")
         
-        # Query for doctors with matching specialization
+        # Normalize the doctor specialization query to lowercase
+        doctor_specialization = doctor_specialization.lower()
+
+        # Find doctors in the given specialization (case-insensitive match)
         doctors_cursor = doctors_collection.find({
-            "field": {"$regex": doctor_specialization, "$options": "i"},
+            "field": {"$regex": doctor_specialization, "$options": "i"},  # Case-insensitive search for field
             "latitude": {"$exists": True},
-            "longitude": {"$exists": True}
+            "longitude": {"$exists": True},
         })
 
         nearest_doctor = None
@@ -160,16 +165,35 @@ async def get_nearest_available_doctor(user_id: str, doctor_specialization: str)
             if distance_km < min_distance:
                 min_distance = distance_km
                 nearest_doctor = doctor
-
+        
         if not nearest_doctor:
-            raise HTTPException(status_code=404, detail="No doctors found in the database.")
-
-        # Remove MongoDB _id
+            raise HTTPException(status_code=404, detail="No available doctor found.")
+        
+        # Clean the response by removing MongoDB's internal '_id'
         nearest_doctor.pop("_id", None)
 
+        # Check the availability schedule for the doctor
+        schedule = nearest_doctor.get("schedule", {})
+        
+        # Constructing a response for the availability (simplified)
+        availability_message = "Doctor is available on the following days: "
+        
+        if schedule:
+            for date, slots in schedule.items():
+                # Check if there are any unavailable slots for that date
+                unavailable_slots = [slot["time"] for slot in slots if slot["available"] == "no"]
+                
+                if unavailable_slots:
+                    availability_message += f"On {date}, available except for {', '.join(unavailable_slots)}. "
+                else:
+                    availability_message += f"On {date}, available all day. "
+        
+        # Return the response with distance included
         return {
             "status": "success",
-            "message": f"Nearest doctor: {nearest_doctor['name']} at {nearest_doctor['hospital']} ({min_distance:.2f} km away).",
+            "message": f"Nearest available doctor: {nearest_doctor['name']} located at {nearest_doctor['hospital']}, {min_distance:.2f} km away.",
+            "distance": f"{min_distance:.2f} km",
+            "availability": availability_message,
             "data": nearest_doctor
         }
 
