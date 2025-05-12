@@ -163,37 +163,33 @@ async def book_appointment(appointment_request: AppointmentRequest):
         raise HTTPException(status_code=500, detail=f"An unexpected error occurred: {str(e)}")
 
 @app.get("/extract_name_from_response")
-async def extract_name_from_response(ugptResponse: str = Query(..., description="UGPT response text to extract doctor's name")):
+async def extract_name_from_response(ugptResponse: Optional[str] = None, request: Request = None):
     """
     Extract a doctor's name from the given generative response string.
+    Handles improper input types and logs the raw query parameter.
     """
     try:
-        # Ensure it's a string and clean it up
+        # Log raw query for debugging
+        raw_query = str(request.query_params)
+        print(f"Raw query: {raw_query}")
+
+        # Validate ugptResponse
+        if ugptResponse is None:
+            raise HTTPException(status_code=400, detail="The 'ugptResponse' parameter is required.")
+        
         if not isinstance(ugptResponse, str):
             ugptResponse = str(ugptResponse)
-        ugptResponse = ugptResponse.strip()
 
-        if not ugptResponse:
+        if not ugptResponse.strip():
             raise HTTPException(status_code=400, detail="The 'ugptResponse' parameter cannot be empty or whitespace.")
 
         # Extract names
         names = extract_names(ugptResponse)
         extracted_name = names[0] if names else None
 
-        # Build response
-        if not extracted_name:
-            return {
-                "status": "warning",
-                "message": "No doctor name found in the input string.",
-                "data": {
-                    "String": ugptResponse,
-                    "Doctor": None
-                }
-            }
-
         return {
-            "status": "success",
-            "message": f"Extracted name: {extracted_name}",
+            "status": "success" if extracted_name else "warning",
+            "message": f"Extracted name: {extracted_name}" if extracted_name else "No names were found in the response.",
             "data": {
                 "String": ugptResponse,
                 "Doctor": extracted_name
@@ -202,6 +198,7 @@ async def extract_name_from_response(ugptResponse: str = Query(..., description=
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error extracting names: {str(e)}")
+
         
 # Generic error handler
 @app.exception_handler(Exception)
