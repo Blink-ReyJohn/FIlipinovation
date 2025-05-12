@@ -102,7 +102,7 @@ async def check_user(user_id: str):
 async def check_doctor_availability(doctor_specialization: str, date: str):
     try:
         doctor_specialization = doctor_specialization.lower()
-        formatted_date = format_date_to_label(date)
+        formatted_date = format_date(date)
 
         # Fetch all doctors with this specialization
         doctors = doctors_collection.find({
