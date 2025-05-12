@@ -162,18 +162,31 @@ async def book_appointment(appointment_request: AppointmentRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"An unexpected error occurred: {str(e)}")
 
-@app.post("/extract_name_from_response")
-async def extract_name_from_response(payload: ResponseText):
+@app.get("/extract_name_from_response")
+async def extract_name_from_response(ugptResponse: str):
     """
-    Extracts potential doctor names from the generative response text.
+    Extracts potential doctor names from the generative response text passed as a query parameter.
     """
     try:
-        names = extract_names(payload.ugptResponse)
+        if not ugptResponse.strip():
+            raise HTTPException(status_code=400, detail="The 'ugptResponse' parameter cannot be empty.")
+
+        # Extract names from the response using regex
+        names = extract_names(ugptResponse)
+
+        if not names:
+            return {
+                "status": "warning",
+                "message": "No names were found in the response.",
+                "data": []
+            }
+
         return {
             "status": "success",
             "message": f"Extracted {len(names)} name(s) from the response.",
             "data": names
         }
+
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error extracting names: {str(e)}")
 
