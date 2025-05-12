@@ -51,7 +51,7 @@ def extract_names(text: str):
     """
     Extracts names from the given text. Supports names with 'Dr.' prefix or standard capitalized names.
     """
-    pattern = r"\b(?:Dr\.?\s)?[A-Z][a-z]+(?:\s[A-Z][a-z]+)+\b"
+    pattern = r"\b[A-Z][a-z]+(?:\s[A-Z][a-z]+)+\b"
     return re.findall(pattern, text)
 
 class ResponseText(BaseModel):
