@@ -4,6 +4,7 @@ from pydantic import BaseModel
 from pymongo import MongoClient, errors
 from typing import Optional
 from bson import ObjectId
+from urllib.parse import unquote
 from datetime import datetime, timedelta
 
 # MongoDB connection
@@ -163,42 +164,64 @@ async def book_appointment(appointment_request: AppointmentRequest):
         raise HTTPException(status_code=500, detail=f"An unexpected error occurred: {str(e)}")
 
 @app.get("/extract_name_from_response")
-async def extract_name_from_response(ugptResponse: Optional[str] = None, request: Request = None):
+async def extract_name_from_response(ugptResponse: str):
     """
     Extract a doctor's name from the given generative response string.
-    Handles improper input types and logs the raw query parameter.
+    Handles basic URL decoding and includes original content in all responses.
     """
     try:
-        # Log raw query for debugging
-        raw_query = str(request.query_params)
-        print(f"Raw query: {raw_query}")
+        # Decode URL-encoded input (e.g., %20 => space)
+        ugptResponse = unquote(ugptResponse)
 
-        # Validate ugptResponse
-        if ugptResponse is None:
-            raise HTTPException(status_code=400, detail="The 'ugptResponse' parameter is required.")
-        
+        # Ensure it's a string, even if passed as another type
         if not isinstance(ugptResponse, str):
             ugptResponse = str(ugptResponse)
 
-        if not ugptResponse.strip():
-            raise HTTPException(status_code=400, detail="The 'ugptResponse' parameter cannot be empty or whitespace.")
+        ugptResponse = ugptResponse.strip()
 
-        # Extract names
+        if not ugptResponse:
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "message": "The 'ugptResponse' parameter cannot be empty or whitespace.",
+                    "content": ugptResponse
+                }
+            )
+
+        # Extract names using regex
         names = extract_names(ugptResponse)
         extracted_name = names[0] if names else None
 
+        if not extracted_name:
+            return {
+                "status": "warning",
+                "message": "No names were found in the response.",
+                "data": {
+                    "String": ugptResponse,
+                    "Doctor": None
+                },
+                "content": ugptResponse
+            }
+
         return {
-            "status": "success" if extracted_name else "warning",
-            "message": f"Extracted name: {extracted_name}" if extracted_name else "No names were found in the response.",
+            "status": "success",
+            "message": f"Extracted name: {extracted_name}",
             "data": {
                 "String": ugptResponse,
                 "Doctor": extracted_name
             }
         }
 
+    except HTTPException as he:
+        raise he  # Already structured
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error extracting names: {str(e)}")
-
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "message": f"Error extracting names: {str(e)}",
+                "content": ugptResponse
+            }
+        )
         
 # Generic error handler
 @app.exception_handler(Exception)
