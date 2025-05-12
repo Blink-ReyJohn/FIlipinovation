@@ -49,7 +49,7 @@ def format_date(date_str: str) -> str:
 
 # Regex-based name extraction function
 def extract_names(text: str):
-    pattern = r"\b[A-Z][a-z]+(?:\s[A-Z][a-z]+)+\b"
+    pattern = r"\b[A-Z][a-z]+(?:\s[A-Z][a-z]+)*\b"
     return re.findall(pattern, text)
 
 class RequestBody(BaseModel):
