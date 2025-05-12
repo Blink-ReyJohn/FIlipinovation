@@ -76,18 +76,43 @@ async def check_user(user_id: str):
 async def check_doctor_availability(doctor_specialization: str, date: str):
     try:
         doctor_specialization = doctor_specialization.lower()
-        doctor = doctors_collection.find_one({"doctors_field": {"$regex": doctor_specialization, "$options": "i"}})
-        
-        if doctor:
-            formatted_date = format_date(date)
-            if doctor.get("date") == formatted_date:
-                available_slots = doctor.get("available_slots", [])
-                return {"status": "success", "message": f"Available slots for {doctor_specialization} on {formatted_date}:", "data": available_slots}
-            else:
-                return {"status": "success", "message": f"No availability for {doctor_specialization} on {formatted_date}.", "data": []}
-        else:
-            raise HTTPException(status_code=404, detail=f"Doctor with specialization '{doctor_specialization}' not found.")
-    
+        formatted_date = format_date_to_label(date)
+
+        # Fetch all doctors with this specialization
+        doctors = doctors_collection.find({
+            "field": {"$regex": doctor_specialization, "$options": "i"}
+        })
+
+        available_doctors = []
+
+        for doctor in doctors:
+            schedule = doctor.get("schedule", {}).get("May", {}).get(formatted_date)
+            if schedule:
+                unavailable_slots = [time for time, slot in schedule.items() if slot.get("available") != "yes"]
+                if unavailable_slots:
+                    message = f"Doctor is available on {formatted_date}, except {', '.join(unavailable_slots)}."
+                else:
+                    message = f"Doctor is available on {formatted_date}."
+                available_doctors.append({
+                    "name": doctor.get("name"),
+                    "hospital": doctor.get("hospital"),
+                    "location": doctor.get("location"),
+                    "message": message
+                })
+
+        if not available_doctors:
+            return {
+                "status": "success",
+                "message": f"No available doctors found for {doctor_specialization} on {formatted_date}.",
+                "data": []
+            }
+
+        return {
+            "status": "success",
+            "message": f"Availability for doctors specializing in {doctor_specialization} on {formatted_date}:",
+            "data": available_doctors
+        }
+
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"An unexpected error occurred: {str(e)}")
 
