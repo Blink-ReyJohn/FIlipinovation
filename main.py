@@ -6,7 +6,7 @@ from pydantic import BaseModel
 from pymongo import MongoClient, errors
 from typing import Optional
 from bson import ObjectId
-from urllib.parse import quote
+from urllib.parse import quote, unquote
 from datetime import datetime, timedelta
 from geopy.distance import geodesic
 
@@ -39,10 +39,10 @@ def format_date(date_str: str) -> str:
     if date_str.strip().lower() == "tomorrow":
         return (today + timedelta(days=1)).strftime("%m-%d")
 
-    # Handle month-day format like "May 15"
+    # Handle month-day format like "May 15" or "May 5"
     try:
-        # The strptime format for month-day ("May 15")
-        date_obj = datetime.strptime(date_str, "%b %d")
+        # The strptime format for month-day ("May 15" or "May 5")
+        date_obj = datetime.strptime(date_str.strip(), "%b %d")
         # Ensure the date is in the current year first
         date_obj = date_obj.replace(year=today.year)
         
@@ -56,11 +56,11 @@ def format_date(date_str: str) -> str:
         print(f"Error parsing date: {date_str}, {e}")
         pass  # Continue to other formats
 
-    # Try different formats
+    # Try different formats: MM-DD, DD-MM, Month D, weekday names
     date_formats = ["%m-%d", "%d-%m", "%b %d", "%A", "tomorrow"]
     for fmt in date_formats:
         try:
-            date_obj = datetime.strptime(date_str, fmt).date()
+            date_obj = datetime.strptime(date_str.strip(), fmt).date()
             if date_obj < today:
                 raise HTTPException(status_code=400, detail="The selected date has already passed.")
             return date_obj.strftime("%m-%d")
@@ -92,44 +92,41 @@ async def check_user(user_id: str):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"An unexpected error occurred: {str(e)}")
 
-
 @app.get("/doctor_availability_by_name/{doctor_name}/{date}")
 async def check_doctor_availability_by_name(doctor_name: str, date: str):
     try:
-        # Format the date
+        doctor_name = unquote(doctor_name)  # Decode the doctor name (handle spaces)
         formatted_date = format_date(date)
 
-        # Fetch doctor based on their name (case-insensitive)
-        doctor = doctors_collection.find_one({"name": {"$regex": doctor_name, "$options": "i"}})
+        # Fetch the doctor by name
+        doctor = doctors_collection.find_one({
+            "name": {"$regex": doctor_name, "$options": "i"}  # Case-insensitive match for the doctor's name
+        })
 
         if not doctor:
-            raise HTTPException(status_code=404, detail=f"Doctor with name '{doctor_name}' not found.")
+            raise HTTPException(status_code=404, detail=f"Doctor '{doctor_name}' not found.")
         
-        # Fetch the doctor's schedule for the specific date
+        # Check the schedule for the given date
         schedule = doctor.get("schedule", {}).get("May", {}).get(formatted_date)
         
-        # Check if schedule exists for that day
-        if not schedule:
-            raise HTTPException(status_code=400, detail=f"Doctor '{doctor_name}' does not have a schedule for {formatted_date}.")
-
-        # Identify unavailable timeslots
-        unavailable_slots = [time for time, slot in schedule.items() if slot.get("available") != "yes"]
-        
-        if unavailable_slots:
-            message = f"Doctor '{doctor_name}' is available on {formatted_date}, except {', '.join(unavailable_slots)}."
-        else:
-            message = f"Doctor '{doctor_name}' is available on {formatted_date}."
-
-        return {
-            "status": "success",
-            "message": f"Availability for {doctor_name} on {formatted_date}:",
-            "data": {
-                "name": doctor.get("name"),
-                "hospital": doctor.get("hospital"),
-                "location": doctor.get("location"),
-                "message": message
+        if schedule:
+            unavailable_slots = [time for time, slot in schedule.items() if slot.get("available") != "yes"]
+            if unavailable_slots:
+                message = f"Doctor is available on {formatted_date}, except {', '.join(unavailable_slots)}."
+            else:
+                message = f"Doctor is available on {formatted_date}."
+            
+            return {
+                "status": "success",
+                "message": message,
+                "doctor": serialize_doctor(doctor)
             }
-        }
+        else:
+            return {
+                "status": "success",
+                "message": f"Doctor is not available on {formatted_date}.",
+                "doctor": serialize_doctor(doctor)
+            }
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"An unexpected error occurred: {str(e)}")
