@@ -1,4 +1,5 @@
-from fastapi import FastAPI, HTTPException, Request
+import re
+from fastapi import FastAPI, HTTPException, Request, Body
 from pydantic import BaseModel
 from pymongo import MongoClient, errors
 from typing import Optional
@@ -44,6 +45,17 @@ def format_date(date_str: str) -> str:
         status_code=400,
         detail="Invalid date format. Use 'YYYY-MM-DD', 'DD-MM-YYYY', 'Month D, YYYY', or 'tomorrow'."
     )
+
+# Regex-based name extraction function
+def extract_names(text: str):
+    """
+    Extracts names from the given text. Supports names with 'Dr.' prefix or standard capitalized names.
+    """
+    pattern = r"\b(?:Dr\.?\s)?[A-Z][a-z]+(?:\s[A-Z][a-z]+)+\b"
+    return re.findall(pattern, text)
+
+class ResponseText(BaseModel):
+    ugptResponse: str
 
 @app.get("/check_user/{user_id}")
 async def check_user(user_id: str):
@@ -149,6 +161,21 @@ async def book_appointment(appointment_request: AppointmentRequest):
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"An unexpected error occurred: {str(e)}")
+
+@app.post("/extract_name_from_response")
+async def extract_name_from_response(payload: ResponseText):
+    """
+    Extracts potential doctor names from the generative response text.
+    """
+    try:
+        names = extract_names(payload.ugptResponse)
+        return {
+            "status": "success",
+            "message": f"Extracted {len(names)} name(s) from the response.",
+            "data": names
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error extracting names: {str(e)}")
 
 # Generic error handler
 @app.exception_handler(Exception)
