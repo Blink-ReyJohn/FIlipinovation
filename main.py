@@ -28,48 +28,30 @@ def serialize_doctor(doctor):
         return doctor
     return None
 
+# Helper function to convert string date to "MM-DD" format (no year)
 def format_date(date_str: str) -> str:
     today = datetime.now().date()
-    current_year = today.year
-    date_str = date_str.strip().lower()
 
     # Handle "tomorrow"
-    if date_str == "tomorrow":
-        return (today + timedelta(days=1)).strftime("%Y-%m-%d")
+    if date_str.strip().lower() == "tomorrow":
+        return (today + timedelta(days=1)).strftime("%m-%d")
 
-    # Handle weekday names and "next <weekday>"
-    weekdays = list(calendar.day_name)
-    if "next" in date_str:
-        parts = date_str.split()
-        if len(parts) == 2 and parts[1].capitalize() in weekdays:
-            target_day = weekdays.index(parts[1].capitalize())
-            days_ahead = (target_day - today.weekday() + 7) % 7
-            days_ahead = days_ahead + 7 if days_ahead == 0 else days_ahead
-            target_date = today + timedelta(days=days_ahead)
-            return target_date.strftime("%Y-%m-%d")
-    elif date_str.capitalize() in weekdays:
-        target_day = weekdays.index(date_str.capitalize())
-        days_ahead = (target_day - today.weekday() + 7) % 7
-        days_ahead = 7 if days_ahead == 0 else days_ahead
-        target_date = today + timedelta(days=days_ahead)
-        return target_date.strftime("%Y-%m-%d")
+    # Handle weekday names like "Monday"
+    weekdays = {day.lower(): i for i, day in enumerate(calendar.day_name)}
+    if date_str.strip().lower() in weekdays:
+        target_day = weekdays[date_str.strip().lower()]
+        days_ahead = (target_day - today.weekday() + 7) % 7 or 7
+        future_date = today + timedelta(days=days_ahead)
+        return future_date.strftime("%m-%d")
 
-    # Handle other formats (add current year)
-    formats_with_default_year = [
-        ("%d-%m", lambda s: f"{s}-{current_year}"),
-        ("%m-%d", lambda s: f"{current_year}-{s}"),
-        ("%b %d", lambda s: f"{s}, {current_year}"),
-        ("%B %d", lambda s: f"{s}, {current_year}"),
-    ]
-
-    for fmt, transformer in formats_with_default_year:
+    # Try other acceptable formats
+    date_formats = ["%m-%d", "%d-%m", "%B %d"]
+    for fmt in date_formats:
         try:
-            transformed = transformer(date_str.title())
-            parse_fmt = f"{fmt}, %Y" if ',' in transformed else "%d-%m-%Y" if '-' in fmt and fmt.startswith("%d") else "%Y-%m-%d"
-            date_obj = datetime.strptime(transformed, parse_fmt).date()
+            date_obj = datetime.strptime(date_str, fmt).date().replace(year=today.year)
             if date_obj < today:
-                raise HTTPException(status_code=400, detail="The selected date has already passed.")
-            return date_obj.strftime("%Y-%m-%d")
+                raise ValueError("Past date not allowed")
+            return date_obj.strftime("%m-%d")
         except ValueError:
             continue
 
