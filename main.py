@@ -39,14 +39,21 @@ def format_date(date_str: str) -> str:
     if date_str.strip().lower() == "tomorrow":
         return (today + timedelta(days=1)).strftime("%m-%d")
 
-    # Try month-day format (e.g., "May 15")
+    # Handle month-day format like "May 15"
     try:
+        # The strptime format for month-day ("May 15")
         date_obj = datetime.strptime(date_str, "%b %d")
-        # Ensure that it's in the future
+        # Ensure the date is in the current year first
+        date_obj = date_obj.replace(year=today.year)
+        
+        # If the date has already passed this year, move to next year
         if date_obj.date() < today:
-            date_obj = date_obj.replace(year=today.year + 1)  # Move to next year if it's past
+            date_obj = date_obj.replace(year=today.year + 1)
+        
         return date_obj.strftime("%m-%d")
-    except ValueError:
+    
+    except ValueError as e:
+        print(f"Error parsing date: {date_str}, {e}")
         pass  # Continue to other formats
 
     # Try different formats
@@ -64,7 +71,6 @@ def format_date(date_str: str) -> str:
         status_code=400,
         detail="Invalid date format. Use 'MM-DD', 'DD-MM', 'Month D', weekday names, or 'tomorrow'."
     )
-
 
 @app.get("/check_user/{user_id}")
 async def check_user(user_id: str):
