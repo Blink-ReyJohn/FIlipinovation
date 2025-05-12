@@ -7,6 +7,7 @@ from typing import Optional
 from bson import ObjectId
 from urllib.parse import quote
 from datetime import datetime, timedelta
+from geopy.distance import geodesic
 
 # MongoDB connection
 client = MongoClient("mongodb+srv://reyjohnandraje2002:ReyJohn17@concentrix.txv3t.mongodb.net/?retryWrites=true&w=majority&appName=Concentrix")
@@ -49,11 +50,6 @@ def format_date(date_str: str) -> str:
         status_code=400,
         detail="Invalid date format. Use 'YYYY-MM-DD', 'DD-MM-YYYY', 'Month D, YYYY', or 'tomorrow'."
     )
-
-# Regex-based name extraction function
-def extract_names(text: str):
-    doc = nlp(text)
-    return [ent.text for ent in doc.ents if ent.label_ == "PERSON"]
 
 @app.get("/check_user/{user_id}")
 async def check_user(user_id: str):
@@ -135,55 +131,53 @@ async def book_appointment(appointment_request: AppointmentRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"An unexpected error occurred: {str(e)}")
 
-@app.get("/extract_name_from_response")
-async def extract_name_from_response(ugptResponse: str = Query(..., description="The response string from UGPT")):
+
+@app.get("/nearest_available_doctor/{user_id}/{doctor_specialization}")
+async def get_nearest_available_doctor(user_id: str, doctor_specialization: str):
     try:
-        # Ensure it's a string and clean it
-        ugptResponse = ugptResponse.strip()
+        # Fetch user data
+        user = users_collection.find_one({"user_id": user_id})
+        
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found.")
+        
+        # Ensure user has coordinates (latitude and longitude)
+        user_coords = (user.get("latitude"), user.get("longitude"))
+        if None in user_coords:
+            raise HTTPException(status_code=400, detail="User coordinates are missing.")
+        
+        # Find doctors in the given specialization (ensure coordinates exist)
+        doctors_cursor = doctors_collection.find({
+            "doctors_field": {"$regex": doctor_specialization, "$options": "i"},
+            "latitude": {"$exists": True},
+            "longitude": {"$exists": True},
+        })
 
-        if not ugptResponse:
-            raise HTTPException(
-                status_code=400,
-                detail={
-                    "message": "The 'ugptResponse' parameter cannot be empty or whitespace.",
-                    "content": ugptResponse
-                }
-            )
+        nearest_doctor = None
+        min_distance = float('inf')
 
-        # Extract names using spaCy
-        names = extract_names(ugptResponse)
-        extracted_name = names[0] if names else None
+        for doctor in doctors_cursor:
+            doc_coords = (doctor["latitude"], doctor["longitude"])
+            distance_km = geodesic(user_coords, doc_coords).kilometers
 
-        if not extracted_name:
-            return {
-                "status": "warning",
-                "message": "No names were found in the response.",
-                "data": {
-                    "String": ugptResponse,
-                    "Doctor": None
-                },
-                "content": ugptResponse
-            }
-
+            if distance_km < min_distance:
+                min_distance = distance_km
+                nearest_doctor = doctor
+        
+        if not nearest_doctor:
+            return {"status": "warning", "message": "No available doctor found in your vicinity."}
+        
+        # Clean the response by removing MongoDB's internal '_id'
+        nearest_doctor.pop("_id", None)
+        
         return {
             "status": "success",
-            "message": f"Extracted name: {extracted_name}",
-            "data": {
-                "String": ugptResponse,
-                "Doctor": extracted_name
-            }
+            "message": f"Nearest available doctor: {nearest_doctor['name']} located at {nearest_doctor['hospital']}, {min_distance:.2f} km away.",
+            "data": nearest_doctor
         }
 
-    except HTTPException as he:
-        raise he
     except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail={
-                "message": f"Error extracting names: {str(e)}",
-                "content": ugptResponse
-            }
-        )
+        raise HTTPException(status_code=500, detail=f"An unexpected error occurred: {str(e)}")
 
 
 # Generic error handler
