@@ -165,31 +165,38 @@ async def book_appointment(appointment_request: AppointmentRequest):
 @app.get("/extract_name_from_response")
 async def extract_name_from_response(ugptResponse: str):
     """
-    Extracts potential doctor names from the generative response text passed as a query parameter.
+    Extract a doctor's name from the given generative response string.
     """
     try:
         if not ugptResponse.strip():
             raise HTTPException(status_code=400, detail="The 'ugptResponse' parameter cannot be empty.")
 
-        # Extract names from the response using regex
+        # Extract names
         names = extract_names(ugptResponse)
+        extracted_name = names[0] if names else None
 
-        if not names:
+        if not extracted_name:
             return {
                 "status": "warning",
                 "message": "No names were found in the response.",
-                "data": []
+                "data": {
+                    "String": ugptResponse,
+                    "Doctor": None
+                }
             }
 
         return {
             "status": "success",
-            "message": f"Extracted {len(names)} name(s) from the response.",
-            "data": names
+            "message": f"Extracted name: {extracted_name}",
+            "data": {
+                "String": ugptResponse,
+                "Doctor": extracted_name
+            }
         }
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error extracting names: {str(e)}")
-
+        
 # Generic error handler
 @app.exception_handler(Exception)
 async def generic_exception_handler(request: Request, exc: Exception):
