@@ -17,6 +17,8 @@ appointments_collection = db["appointments"]
 
 app = FastAPI()
 
+nlp = spacy.load("en_core_web_sm")
+
 # Convert MongoDB document to JSON-safe dict, excluding '_id' field
 def serialize_doctor(doctor):
     if doctor:
