@@ -1,6 +1,10 @@
 import re
 import spacy
 import calendar
+import smtplib
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
+from email.mime.image import MIMEImage
 from pytz import timezone
 from fastapi import FastAPI, HTTPException, Request, Body, Query
 from pydantic import BaseModel
@@ -134,44 +138,104 @@ async def check_user(user_id: str):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"An unexpected error occurred: {str(e)}")
 
-class AppointmentRequest(BaseModel):
-    user_id: str
-    doctor_specialization: str
-    date: str
-    time: str
-
 @app.post("/book_appointment")
 async def book_appointment(appointment_request: AppointmentRequest):
     try:
         doctor_specialization = appointment_request.doctor_specialization.lower()
         user = users_collection.find_one({"user_id": appointment_request.user_id})
+        
         if not user:
             raise HTTPException(status_code=404, detail=f"User with ID {appointment_request.user_id} not found.")
-
-        doctor = doctors_collection.find_one({"doctors_field": {"$regex": doctor_specialization, "$options": "i"}})
+        
+        doctor = doctors_collection.find_one({"field": {"$regex": doctor_specialization, "$options": "i"}})
         if not doctor:
             raise HTTPException(status_code=404, detail=f"Doctor with specialization '{doctor_specialization}' not found.")
         
         formatted_date = format_date(appointment_request.date)
-        if doctor.get("date") != formatted_date:
+        schedule = doctor.get("schedule", {}).get("May", {}).get(formatted_date)
+
+        if not schedule:
             raise HTTPException(status_code=400, detail=f"Doctor is not available on {formatted_date}.")
 
-        if appointment_request.time not in doctor.get("available_slots", []):
+        # Check availability for the selected time
+        if appointment_request.time not in schedule:
             raise HTTPException(status_code=400, detail=f"Time '{appointment_request.time}' is not available for {doctor_specialization} on {formatted_date}.")
-        
+
+        # Update doctor's availability
+        schedule[appointment_request.time]["available"] = "no"
+        doctors_collection.update_one(
+            {"_id": doctor["_id"]},
+            {"$set": {"schedule.May." + formatted_date: schedule}}
+        )
+
+        # Save the appointment data in the appointments collection
         appointment_data = {
             "user_id": appointment_request.user_id,
             "doctor_specialization": doctor_specialization,
             "date": formatted_date,
             "time": appointment_request.time,
         }
+        appointments_collection.insert_one(appointment_data)
 
-        result = appointments_collection.insert_one(appointment_data)
+        # Get user email for confirmation
+        user_email = user.get("email")
+        if not user_email:
+            raise HTTPException(status_code=404, detail="User email not found.")
+
+        # Send email to user confirming the appointment
+        send_appointment_confirmation_email(user_email, doctor, appointment_request)
 
         return {"status": "success", "message": "Appointment successfully booked.", "data": appointment_data}
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"An unexpected error occurred: {str(e)}")
+
+
+# Function to send email to the user
+def send_appointment_confirmation_email(user_email: str, doctor: dict, appointment_request: AppointmentRequest):
+    try:
+        # Email content
+        html_content = f"""
+        <div style="max-width:600px;margin:0 auto;background-color:#ffffff;padding:20px;border:1px solid #ddd;border-radius:8px;font-family:Arial,sans-serif;color:#333;">
+            <div style="text-align:center;">
+                <img src="https://static.vecteezy.com/system/resources/thumbnails/017/177/954/small_2x/round-medical-cross-symbol-on-transparent-background-free-png.png" alt="Medical Logo" style="max-height:85px;"> 
+            </div>
+
+            <div style="margin:10px 0;font-size:16px;">
+                Dear {user_email},<br>
+                Your appointment has been successfully booked.<br><br>
+                <strong>Appointment Details:</strong><br>
+                <strong>Doctor:</strong> Dr. {doctor['name']}<br>
+                <strong>Specialization:</strong> {doctor['field']}<br>
+                <strong>Hospital:</strong> {doctor['hospital']}<br>
+                <strong>Date:</strong> {appointment_request.date}<br>
+                <strong>Time:</strong> {appointment_request.time}<br><br>
+                Please be sure to arrive on time for your appointment.<br>
+                Thank you for choosing us! 
+            </div>
+            <div style="margin-top:10px;">
+                Best Regards,<br>
+                <strong>Medical Support Team</strong> 
+            </div>
+        </div>
+        """
+
+        # Setting up the email details
+        msg = MIMEMultipart()
+        msg['From'] = "reyjohnandraje2002@gmail.com"
+        msg['To'] = user_email
+        msg['Subject'] = "Appointment Confirmation"
+
+        msg.attach(MIMEText(html_content, 'html'))
+
+        # Setting up the SMTP server (using Gmail as an example)
+        with smtplib.SMTP('smtp.gmail.com', 587) as server:
+            server.starttls()
+            server.login("your_email@example.com", "your_email_password")
+            server.sendmail(msg['From'], msg['To'], msg.as_string())
+
+    except Exception as e:
+        print(f"Failed to send email: {str(e)}")
 
 @app.get("/nearest_available_doctor/{user_id}/{doctor_specialization}")
 async def get_nearest_available_doctor(user_id: str, doctor_specialization: str):
