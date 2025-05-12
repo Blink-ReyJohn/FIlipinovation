@@ -131,22 +131,17 @@ async def book_appointment(appointment_request: AppointmentRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"An unexpected error occurred: {str(e)}")
 
-
 @app.get("/nearest_available_doctor/{user_id}/{doctor_specialization}")
 async def get_nearest_available_doctor(user_id: str, doctor_specialization: str):
     try:
-        # Fetch user data
         user = users_collection.find_one({"user_id": user_id})
-        
         if not user:
             raise HTTPException(status_code=404, detail="User not found.")
         
-        # Ensure user has coordinates (latitude and longitude)
         user_coords = (user.get("latitude"), user.get("longitude"))
         if None in user_coords:
             raise HTTPException(status_code=400, detail="User coordinates are missing.")
-        
-        # Find doctors in the given specialization (ensure coordinates exist)
+
         doctors_cursor = doctors_collection.find({
             "doctors_field": {"$regex": doctor_specialization, "$options": "i"},
             "latitude": {"$exists": True},
@@ -159,26 +154,23 @@ async def get_nearest_available_doctor(user_id: str, doctor_specialization: str)
         for doctor in doctors_cursor:
             doc_coords = (doctor["latitude"], doctor["longitude"])
             distance_km = geodesic(user_coords, doc_coords).kilometers
-
             if distance_km < min_distance:
                 min_distance = distance_km
                 nearest_doctor = doctor
-        
+
         if not nearest_doctor:
-            return {"status": "warning", "message": "No available doctor found in your vicinity."}
-        
-        # Clean the response by removing MongoDB's internal '_id'
+            return {"status": "warning", "message": "No doctor found nearby with that specialization."}
+
         nearest_doctor.pop("_id", None)
-        
+
         return {
             "status": "success",
-            "message": f"Nearest available doctor: {nearest_doctor['name']} located at {nearest_doctor['hospital']}, {min_distance:.2f} km away.",
+            "message": f"Nearest doctor: {nearest_doctor['name']} at {nearest_doctor['hospital']}, {min_distance:.2f} km away.",
             "data": nearest_doctor
         }
 
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"An unexpected error occurred: {str(e)}")
-
+        raise HTTPException(status_code=500, detail=f"Unexpected error: {str(e)}")
 
 # Generic error handler
 @app.exception_handler(Exception)
