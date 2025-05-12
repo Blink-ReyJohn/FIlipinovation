@@ -49,8 +49,8 @@ def format_date(date_str: str) -> str:
 
 # Regex-based name extraction function
 def extract_names(text: str):
-    pattern = r"\b[A-Z][a-z]+(?:\s[A-Z][a-z]+)*\b"
-    return re.findall(pattern, text)
+    doc = nlp(text)
+    return [ent.text for ent in doc.ents if ent.label_ == "PERSON"]
 
 class RequestBody(BaseModel):
     ugptResponse: str
