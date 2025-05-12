@@ -27,10 +27,7 @@ def serialize_doctor(doctor):
         doctor.pop('_id', None)  # Remove MongoDB internal ID
         return doctor
     return None
-
-from datetime import datetime, timedelta
-import calendar
-
+    
 # Helper function to convert string date to "Month D" format (e.g., "May 13")
 def format_date(date_str: str) -> str:
     today = datetime.now().date()
@@ -76,7 +73,10 @@ def format_date(date_str: str) -> str:
 @app.get("/doctor_availability/{doctor_specialization}/{date}")
 async def check_doctor_availability(doctor_specialization: str, date: str):
     try:
-        doctor_specialization = doctor_specialization.lower()
+        # Decode the URL-encoded parameters
+        doctor_specialization = unquote(doctor_specialization).lower()  # Decode and convert to lowercase
+        date = unquote(date)  # Decode the date string
+
         formatted_date = format_date(date)  # Format the date as "May 13"
 
         # Fetch all doctors with this specialization
@@ -124,6 +124,7 @@ async def check_doctor_availability(doctor_specialization: str, date: str):
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"An unexpected error occurred: {str(e)}")
+        
 
 @app.get("/check_user/{user_id}")
 async def check_user(user_id: str):
