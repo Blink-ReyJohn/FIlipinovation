@@ -93,50 +93,46 @@ async def check_user(user_id: str):
         raise HTTPException(status_code=500, detail=f"An unexpected error occurred: {str(e)}")
 
 
-@app.get("/doctor_availability/{doctor_specialization}/{date}")
-async def check_doctor_availability(doctor_specialization: str, date: str):
+@app.get("/doctor_availability_by_name/{doctor_name}/{date}")
+async def check_doctor_availability_by_name(doctor_name: str, date: str):
     try:
-        doctor_specialization = doctor_specialization.lower()
+        # Format the date
         formatted_date = format_date(date)
 
-        # Fetch all doctors with this specialization
-        doctors = doctors_collection.find({
-            "field": {"$regex": doctor_specialization, "$options": "i"}
-        })
+        # Fetch doctor based on their name (case-insensitive)
+        doctor = doctors_collection.find_one({"name": {"$regex": doctor_name, "$options": "i"}})
 
-        available_doctors = []
+        if not doctor:
+            raise HTTPException(status_code=404, detail=f"Doctor with name '{doctor_name}' not found.")
+        
+        # Fetch the doctor's schedule for the specific date
+        schedule = doctor.get("schedule", {}).get("May", {}).get(formatted_date)
+        
+        # Check if schedule exists for that day
+        if not schedule:
+            raise HTTPException(status_code=400, detail=f"Doctor '{doctor_name}' does not have a schedule for {formatted_date}.")
 
-        for doctor in doctors:
-            schedule = doctor.get("schedule", {}).get("May", {}).get(formatted_date)
-            if schedule:
-                unavailable_slots = [time for time, slot in schedule.items() if slot.get("available") != "yes"]
-                if unavailable_slots:
-                    message = f"Doctor is available on {formatted_date}, except {', '.join(unavailable_slots)}."
-                else:
-                    message = f"Doctor is available on {formatted_date}."
-                available_doctors.append({
-                    "name": doctor.get("name"),
-                    "hospital": doctor.get("hospital"),
-                    "location": doctor.get("location"),
-                    "message": message
-                })
-
-        if not available_doctors:
-            return {
-                "status": "success",
-                "message": f"No available doctors found for {doctor_specialization} on {formatted_date}.",
-                "data": []
-            }
+        # Identify unavailable timeslots
+        unavailable_slots = [time for time, slot in schedule.items() if slot.get("available") != "yes"]
+        
+        if unavailable_slots:
+            message = f"Doctor '{doctor_name}' is available on {formatted_date}, except {', '.join(unavailable_slots)}."
+        else:
+            message = f"Doctor '{doctor_name}' is available on {formatted_date}."
 
         return {
             "status": "success",
-            "message": f"Availability for doctors specializing in {doctor_specialization} on {formatted_date}:",
-            "data": available_doctors
+            "message": f"Availability for {doctor_name} on {formatted_date}:",
+            "data": {
+                "name": doctor.get("name"),
+                "hospital": doctor.get("hospital"),
+                "location": doctor.get("location"),
+                "message": message
+            }
         }
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"An unexpected error occurred: {str(e)}")
-
 
 class AppointmentRequest(BaseModel):
     user_id: str
