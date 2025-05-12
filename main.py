@@ -231,7 +231,7 @@ def send_appointment_confirmation_email(user_email: str, doctor: dict, appointme
         # Setting up the SMTP server (using Gmail as an example)
         with smtplib.SMTP('smtp.gmail.com', 587) as server:
             server.starttls()
-            server.login("your_email@example.com", "your_email_password")
+            server.login("reyjohnandraje2002@gmail.com", "xwkb uxzu wwjk mzgq")
             server.sendmail(msg['From'], msg['To'], msg.as_string())
 
     except Exception as e:
