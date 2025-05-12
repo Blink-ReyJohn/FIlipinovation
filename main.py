@@ -28,18 +28,18 @@ def serialize_doctor(doctor):
         return doctor
     return None
     
-# Helper function to convert string date to "Month D" format (e.g., "May 13")
+# Helper function to convert string date to "MM-DD" format
 def format_date(date_str: str) -> str:
     today = datetime.now().date()
 
     # Handle keyword "tomorrow"
     if date_str.strip().lower() == "tomorrow":
-        return (today + timedelta(days=1)).strftime("%b %d")  # "May 14" format
+        return (today + timedelta(days=1)).strftime("%m-%d")
 
     # Handle month-day format like "May 15"
     try:
         # The strptime format for month-day ("May 15")
-        date_obj = datetime.strptime(date_str.strip(), "%b %d")
+        date_obj = datetime.strptime(date_str, "%b %d")
         # Ensure the date is in the current year first
         date_obj = date_obj.replace(year=today.year)
         
@@ -47,7 +47,7 @@ def format_date(date_str: str) -> str:
         if date_obj.date() < today:
             date_obj = date_obj.replace(year=today.year + 1)
         
-        return date_obj.strftime("%b %d")  # Return as "May 13"
+        return date_obj.strftime("%m-%d")
     
     except ValueError as e:
         print(f"Error parsing date: {date_str}, {e}")
@@ -57,10 +57,10 @@ def format_date(date_str: str) -> str:
     date_formats = ["%m-%d", "%d-%m", "%b %d", "%A", "tomorrow"]
     for fmt in date_formats:
         try:
-            date_obj = datetime.strptime(date_str.strip(), fmt).date()
+            date_obj = datetime.strptime(date_str, fmt).date()
             if date_obj < today:
                 raise HTTPException(status_code=400, detail="The selected date has already passed.")
-            return date_obj.strftime("%b %d")  # Return as "May 13"
+            return date_obj.strftime("%m-%d")
         except ValueError:
             continue
 
@@ -69,58 +69,41 @@ def format_date(date_str: str) -> str:
         detail="Invalid date format. Use 'MM-DD', 'DD-MM', 'Month D', weekday names, or 'tomorrow'."
     )
 
-
-@app.get("/doctor_availability/{doctor_specialization}/{date}")
-async def check_doctor_availability(doctor_specialization: str, date: str):
+@app.get("/doctor_availability_by_name/{doctor_name}/{date}")
+async def check_doctor_availability_by_name(doctor_name: str, date: str):
     try:
-        # Decode the URL-encoded parameters
-        doctor_specialization = unquote(doctor_specialization).lower()  # Decode and convert to lowercase
-        date = unquote(date)  # Decode the date string
+        doctor_name = unquote(doctor_name)  # Decode the doctor name (handle spaces)
+        formatted_date = format_date(date)
 
-        formatted_date = format_date(date)  # Format the date as "May 13"
-
-        # Fetch all doctors with this specialization
-        doctors = doctors_collection.find({
-            "field": {"$regex": doctor_specialization, "$options": "i"}
+        # Fetch the doctor by name
+        doctor = doctors_collection.find_one({
+            "name": {"$regex": doctor_name, "$options": "i"}  # Case-insensitive match for the doctor's name
         })
 
-        available_doctors = []
-
-        for doctor in doctors:
-            schedule = doctor.get("schedule", {}).get("May", {}).get(formatted_date)
-            if schedule:
-                unavailable_slots = [time for time, slot in schedule.items() if slot.get("available") != "yes"]
-                if unavailable_slots:
-                    message = f"Doctor {doctor['name']} is available on {formatted_date}, except {', '.join(unavailable_slots)}."
-                else:
-                    message = f"Doctor {doctor['name']} is available on {formatted_date}."
-                available_doctors.append({
-                    "name": doctor.get("name"),
-                    "hospital": doctor.get("hospital"),
-                    "location": doctor.get("location"),
-                    "message": message
-                })
+        if not doctor:
+            raise HTTPException(status_code=404, detail=f"Doctor '{doctor_name}' not found.")
+        
+        # Check the schedule for the given date
+        schedule = doctor.get("schedule", {}).get("May", {}).get(formatted_date)
+        
+        if schedule:
+            unavailable_slots = [time for time, slot in schedule.items() if slot.get("available") != "yes"]
+            if unavailable_slots:
+                message = f"Dr. {doctor_name} is available on {formatted_date}, except {', '.join(unavailable_slots)}."
             else:
-                # If no schedule for that day, show that doctor is unavailable
-                available_doctors.append({
-                    "name": doctor.get("name"),
-                    "hospital": doctor.get("hospital"),
-                    "location": doctor.get("location"),
-                    "message": f"Doctor {doctor['name']} is not available on {formatted_date}."
-                })
-
-        if not available_doctors:
+                message = f"Dr. {doctor_name} is available on {formatted_date}."
+            
             return {
                 "status": "success",
-                "message": f"No available doctors found for {doctor_specialization} on {formatted_date}.",
-                "data": []
+                "message": message,
+                "doctor": serialize_doctor(doctor)
             }
-
-        return {
-            "status": "success",
-            "message": f"Availability for doctors specializing in {doctor_specialization} on {formatted_date}:",
-            "data": available_doctors
-        }
+        else:
+            return {
+                "status": "success",
+                "message": f"Dr. {doctor_name} is not available on {formatted_date}.",
+                "doctor": serialize_doctor(doctor)
+            }
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"An unexpected error occurred: {str(e)}")
