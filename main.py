@@ -28,29 +28,34 @@ def serialize_doctor(doctor):
         return doctor
     return None
 
-# Helper function to convert string date to "MM-DD" format (no year)
+from datetime import datetime, timedelta
+import calendar
+
+# Helper function to convert string date to "MM-DD" format
 def format_date(date_str: str) -> str:
     today = datetime.now().date()
 
-    # Handle "tomorrow"
+    # Handle keyword "tomorrow"
     if date_str.strip().lower() == "tomorrow":
         return (today + timedelta(days=1)).strftime("%m-%d")
 
-    # Handle weekday names like "Monday"
-    weekdays = {day.lower(): i for i, day in enumerate(calendar.day_name)}
-    if date_str.strip().lower() in weekdays:
-        target_day = weekdays[date_str.strip().lower()]
-        days_ahead = (target_day - today.weekday() + 7) % 7 or 7
-        future_date = today + timedelta(days=days_ahead)
-        return future_date.strftime("%m-%d")
+    # Try month-day format (e.g., "May 15")
+    try:
+        date_obj = datetime.strptime(date_str, "%b %d")
+        # Ensure that it's in the future
+        if date_obj.date() < today:
+            date_obj = date_obj.replace(year=today.year + 1)  # Move to next year if it's past
+        return date_obj.strftime("%m-%d")
+    except ValueError:
+        pass  # Continue to other formats
 
-    # Try other acceptable formats
-    date_formats = ["%m-%d", "%d-%m", "%B %d"]
+    # Try different formats
+    date_formats = ["%m-%d", "%d-%m", "%b %d", "%A", "tomorrow"]
     for fmt in date_formats:
         try:
-            date_obj = datetime.strptime(date_str, fmt).date().replace(year=today.year)
+            date_obj = datetime.strptime(date_str, fmt).date()
             if date_obj < today:
-                raise ValueError("Past date not allowed")
+                raise HTTPException(status_code=400, detail="The selected date has already passed.")
             return date_obj.strftime("%m-%d")
         except ValueError:
             continue
@@ -59,6 +64,7 @@ def format_date(date_str: str) -> str:
         status_code=400,
         detail="Invalid date format. Use 'MM-DD', 'DD-MM', 'Month D', weekday names, or 'tomorrow'."
     )
+
 
 @app.get("/check_user/{user_id}")
 async def check_user(user_id: str):
