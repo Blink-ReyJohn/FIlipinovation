@@ -3,7 +3,7 @@ from pydantic import BaseModel
 from pymongo import MongoClient, errors
 from typing import Optional
 from bson import ObjectId
-from datetime import datetime
+from datetime import datetime, timedelta
 
 # MongoDB connection
 client = MongoClient("mongodb+srv://reyjohnandraje2002:ReyJohn17@concentrix.txv3t.mongodb.net/?retryWrites=true&w=majority&appName=Concentrix")
@@ -23,18 +23,27 @@ def serialize_doctor(doctor):
 
 # Helper function to convert string date to "YYYY-MM-DD" format
 def format_date(date_str: str) -> str:
-    try:
-        date_obj = datetime.strptime(date_str, "%Y-%m-%d")  # Handle "2025-05-01"
-    except ValueError:
-        try:
-            date_obj = datetime.strptime(date_str, "%d-%m-%Y")  # Handle "01-05-2025"
-        except ValueError:
-            try:
-                date_obj = datetime.strptime(date_str, "%b %d, %Y")  # Handle "May 7, 2025"
-            except ValueError:
-                raise HTTPException(status_code=400, detail="Invalid date format. Please use 'YYYY-MM-DD', 'DD-MM-YYYY', or 'Month D, YYYY'.")
-    return date_obj.strftime("%Y-%m-%d")
+    today = datetime.now().date()
 
+    # Handle keyword "tomorrow"
+    if date_str.strip().lower() == "tomorrow":
+        return (today + timedelta(days=1)).strftime("%Y-%m-%d")
+
+    # Try different formats
+    date_formats = ["%Y-%m-%d", "%d-%m-%Y", "%b %d, %Y"]
+    for fmt in date_formats:
+        try:
+            date_obj = datetime.strptime(date_str, fmt).date()
+            if date_obj < today:
+                raise HTTPException(status_code=400, detail="The selected date has already passed.")
+            return date_obj.strftime("%Y-%m-%d")
+        except ValueError:
+            continue
+
+    raise HTTPException(
+        status_code=400,
+        detail="Invalid date format. Use 'YYYY-MM-DD', 'DD-MM-YYYY', 'Month D, YYYY', or 'tomorrow'."
+    )
 
 @app.get("/check_user/{user_id}")
 async def check_user(user_id: str):
