@@ -131,7 +131,7 @@ async def book_appointment(appointment_request: AppointmentRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"An unexpected error occurred: {str(e)}")
 
-@router.get("/nearest_available_doctor/{user_id}/{doctor_specialization}")
+@app.get("/nearest_available_doctor/{user_id}/{doctor_specialization}")
 async def get_nearest_available_doctor(user_id: str, doctor_specialization: str):
     try:
         # Fetch user data
