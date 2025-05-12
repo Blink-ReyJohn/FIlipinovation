@@ -26,6 +26,12 @@ app = FastAPI()
 
 nlp = spacy.load("en_core_web_sm")
 
+class AppointmentRequest(BaseModel):
+    user_id: str  # Assuming user ID is a string
+    doctor_specialization: str
+    date: str  # Date in string format (you can validate and format it)
+    time: str  # Time as a string (e.g., "09:00 AM")
+
 # Convert MongoDB document to JSON-safe dict, excluding '_id' field
 def serialize_doctor(doctor):
     if doctor:
