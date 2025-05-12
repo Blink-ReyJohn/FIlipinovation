@@ -138,9 +138,10 @@ async def book_appointment(appointment_request: AppointmentRequest):
 @app.post("/extract_name_from_response")
 async def extract_name_from_response(body: RequestBody):
     try:
+        # Get the 'ugptResponse' from the body
         ugptResponse = body.ugptResponse
-        ugptResponse = quote(ugptResponse)
 
+        # Ensure it's a string
         if not isinstance(ugptResponse, str):
             ugptResponse = str(ugptResponse)
 
@@ -155,6 +156,7 @@ async def extract_name_from_response(body: RequestBody):
                 }
             )
 
+        # Extract names using regex
         names = extract_names(ugptResponse)
         extracted_name = names[0] if names else None
 
