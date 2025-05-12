@@ -145,7 +145,7 @@ async def get_nearest_available_doctor(user_id: str, doctor_specialization: str)
         
         # Query for doctors with matching specialization
         doctors_cursor = doctors_collection.find({
-            "doctors_field": {"$regex": doctor_specialization, "$options": "i"},
+            "field": {"$regex": doctor_specialization, "$options": "i"},
             "latitude": {"$exists": True},
             "longitude": {"$exists": True}
         })
