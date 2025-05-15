@@ -21,6 +21,10 @@ db = client["Filipinovation"]
 doctors_collection = db["doctors"]
 users_collection = db["users"]
 appointments_collection = db["appointments"]
+hmo_db = client["hmo_system"]
+filipinovation_db = client["Filipinovation"]
+users_collection = hmo_db["users"]  # User info here
+services_collection = filipinovation_db["services"]  # Service costs here
 
 app = FastAPI()
 
@@ -295,6 +299,58 @@ async def get_nearest_available_doctor(user_id: str, doctor_specialization: str)
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"An unexpected error occurred: {str(e)}")
+
+@app.get("/request-loa")
+async def request_loa(
+    member_id: str = Query(..., description="10-digit member ID"),
+    service_type: str = Query(..., description="Type of service requested")
+):
+    try:
+        # Fetch user info
+        user = users_collection.find_one({"member_id": member_id})
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found.")
+
+        # Fetch service cost
+        service = services_collection.find_one({"service_type": service_type})
+        if not service:
+            return {"status": "denied", "reason": f"Service '{service_type}' not recognized."}
+
+        service_cost = service.get("cost", 0)
+        remaining_credits = user.get("remaining_credits", 0.0)
+
+        # Check credits vs service cost
+        if service_cost > remaining_credits:
+            return {
+                "status": "denied",
+                "reason": f"Insufficient credits. Required: ₱{service_cost}, Available: ₱{remaining_credits:.2f}."
+            }
+
+        # Approve: Deduct credits and add request record
+        new_balance = remaining_credits - service_cost
+        new_request = {
+            "date": datetime.now(timezone("Asia/Manila")).strftime("%Y-%m-%d %H:%M"),
+            "service_type": service_type,
+            "amount": service_cost,
+            "status": "approved"
+        }
+
+        users_collection.update_one(
+            {"member_id": member_id},
+            {
+                "$push": {"requests": new_request},
+                "$set": {"remaining_credits": new_balance}
+            }
+        )
+
+        return {
+            "status": "approved",
+            "message": f"LOA approved for {service_type}. Deducted ₱{service_cost}. Remaining balance: ₱{new_balance:.2f}.",
+            "new_balance": new_balance
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error processing LOA: {str(e)}")
 
 # Generic error handler
 @app.exception_handler(Exception)
