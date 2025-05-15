@@ -84,6 +84,15 @@ def format_date(date_str: str) -> str:
         detail="Invalid date format. Use 'MM-DD', 'DD-MM', 'Month D', weekday names, or 'tomorrow'."
     )
 
+@app.get("/customer-info")
+async def get_customer_info(member_id: str = Query(..., min_length=10, max_length=10, description="10-digit member ID")):
+    user = users_collection.find_one({"member_id": member_id})
+    if not user:
+        raise HTTPException(status_code=404, detail=f"User with member_id '{member_id}' not found.")
+    
+    user.pop('_id', None)  # remove internal MongoDB ID before returning
+    return {"status": "success", "data": user}
+
 # Endpoint to check doctor availability by name
 @app.get("/doctor_availability_by_name/{doctor_name}/{date}") 
 async def check_doctor_availability_by_name(doctor_name: str, date: str):
@@ -311,19 +320,28 @@ async def request_loa(
         if not user:
             raise HTTPException(status_code=404, detail="User not found.")
 
+        plan = user.get("plan", "Unknown")
+        remaining_credits = user.get("remaining_credits", 0.0)
+
         # Fetch service cost
         service = services_collection.find_one({"service_type": service_type})
         if not service:
-            return {"status": "denied", "reason": f"Service '{service_type}' not recognized."}
+            return {
+                "status": "denied",
+                "reason": f"Service '{service_type}' not recognized.",
+                "user_plan": plan,
+                "remaining_credits": remaining_credits
+            }
 
         service_cost = service.get("cost", 0)
-        remaining_credits = user.get("remaining_credits", 0.0)
 
         # Check credits vs service cost
         if service_cost > remaining_credits:
             return {
                 "status": "denied",
-                "reason": f"Insufficient credits. Required: ₱{service_cost}, Available: ₱{remaining_credits:.2f}."
+                "reason": f"Insufficient credits. Required: ₱{service_cost}, Available: ₱{remaining_credits:.2f}.",
+                "user_plan": plan,
+                "remaining_credits": remaining_credits
             }
 
         # Approve: Deduct credits and add request record
@@ -345,7 +363,9 @@ async def request_loa(
 
         return {
             "status": "approved",
-            "message": f"LOA approved for {service_type}. Deducted ₱{service_cost}. Remaining balance: ₱{new_balance:.2f}.",
+            "message": f"LOA approved for {service_type}. Deducted ₱{service_cost}.",
+            "user_plan": plan,
+            "previous_balance": remaining_credits,
             "new_balance": new_balance
         }
 
