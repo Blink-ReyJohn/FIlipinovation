@@ -52,10 +52,8 @@ async def get_customer_info(member_id: str = Query(..., min_length=10, max_lengt
 @app.get("/doctor_availability_by_name")
 async def check_doctor_availability_by_name(doctor_name: str, month: str, day: str):
     try:
-        doctor_name = unquote(doctor_name)
-
-        if not month or not day:
-            raise HTTPException(status_code=400, detail="Both 'month' and 'day' query parameters are required")
+        if not doctor_name or not month or not day:
+            raise HTTPException(status_code=400, detail="All parameters 'doctor_name', 'month', and 'day' are required.")
 
         formatted_date = f"{month} {day}"
 
@@ -73,20 +71,18 @@ async def check_doctor_availability_by_name(doctor_name: str, month: str, day: s
                 message = f"Dr. {doctor_name} is available on {formatted_date}, except {', '.join(unavailable_slots)}."
             else:
                 message = f"Dr. {doctor_name} is available on {formatted_date}."
-            return {
-                "status": "success",
-                "message": message,
-                "doctor": {"name": doctor.get("name"), "message": message}
-            }
         else:
-            return {
-                "status": "success",
-                "message": f"Dr. {doctor_name} is not available on {formatted_date}.",
-                "doctor": {"name": doctor.get("name"), "message": f"Dr. {doctor_name} is not available on {formatted_date}."}
-            }
+            message = f"Dr. {doctor_name} is not available on {formatted_date}."
+
+        return {
+            "status": "success",
+            "message": message,
+            "doctor": {"name": doctor.get("name"), "message": message}
+        }
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"An unexpected error occurred: {str(e)}")
+
 
 @app.get("/check_user/{user_id}")
 async def check_user(user_id: str):
