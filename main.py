@@ -52,22 +52,22 @@ async def get_customer_info(member_id: str = Query(..., min_length=10, max_lengt
 from datetime import datetime
 from fastapi import HTTPException
 
+from datetime import datetime
+from fastapi import HTTPException
+
 @app.get("/doctor_availability_by_name")
-async def check_doctor_availability_by_name(doctor_name: str = "", month: str = "", day: str = ""):
+async def check_doctor_availability_by_name(doctor_name: str = "", date: str = ""):
     try:
         missing = []
         if not doctor_name:
             missing.append("doctor_name")
-        if not month:
-            missing.append("month")
-        if not day:
-            missing.append("day")
+        if not date:
+            missing.append("date")
 
         if missing:
             received = {
                 "doctor_name": doctor_name,
-                "month": month,
-                "day": day
+                "date": date
             }
             raise HTTPException(
                 status_code=400,
@@ -77,7 +77,7 @@ async def check_doctor_availability_by_name(doctor_name: str = "", month: str = 
                 }
             )
 
-        formatted_date = f"{month} {day}"
+        formatted_date = date.strip()  # e.g. "May 1"
 
         doctor = doctors_collection.find_one({
             "name": {"$regex": doctor_name, "$options": "i"}
@@ -87,7 +87,7 @@ async def check_doctor_availability_by_name(doctor_name: str = "", month: str = 
             raise HTTPException(status_code=404, detail=f"Doctor '{doctor_name}' not found.")
 
         schedule = doctor.get("schedule", [])
-        # Filter schedule entries for the requested date
+        # Filter schedule entries matching the full date string
         day_schedule = [entry for entry in schedule if entry.get("date") == formatted_date]
 
         if day_schedule:
