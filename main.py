@@ -2,6 +2,7 @@ import re
 import spacy
 import calendar
 import smtplib
+import pytz
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.mime.image import MIMEImage
@@ -29,6 +30,8 @@ hmo_users = hmo_db["users"]
 
 nlp = spacy.load("en_core_web_sm")
 
+PHT = pytz.timezone("Asia/Manila")
+
 class AppointmentRequest(BaseModel):
     user_id: str
     doctor_specialization: str
@@ -43,33 +46,34 @@ def serialize_doctor(doctor):
 
 def format_date(date_str: str) -> str:
     date_str = date_str.strip().lower()
+    now = datetime.now(PHT)
 
-    # Handle 'tomorrow'
     if date_str == "tomorrow":
-        return datetime.now().strftime("%d")
+        target_date = now + timedelta(days=1)
+        return target_date.strftime("%B %-d")  # "May 21"
 
-    # Handle weekday names
     weekdays = {day.lower(): i for i, day in enumerate(calendar.day_name)}
     if date_str in weekdays:
-        today = datetime.now()
-        today_weekday = today.weekday()
+        today_weekday = now.weekday()
         target_weekday = weekdays[date_str]
         days_ahead = (target_weekday - today_weekday + 7) % 7
         if days_ahead == 0:
             days_ahead = 7
-        target_date = today + timedelta(days=days_ahead)
-        return target_date.strftime("%d")  # Only return day as string
+        target_date = now + timedelta(days=days_ahead)
+        return target_date.strftime("%B %-d")
 
-    # Try parsing 'May 21', '21 May'
+    # Try parsing formats and return "Month D"
     for fmt in ["%B %d", "%d %B", "%m-%d", "%d-%m"]:
         try:
             parsed_date = datetime.strptime(date_str, fmt)
-            return parsed_date.strftime("%d")  # Only return day part like "21"
+            return parsed_date.strftime("%B %-d")
         except ValueError:
             continue
 
-    # If all formats fail
-    raise HTTPException(status_code=400, detail="Invalid date format. Use 'MM-DD', 'DD-MM', 'Month D', weekday names, or 'tomorrow'.")
+    raise HTTPException(
+        status_code=400,
+        detail="Invalid date format. Use 'MM-DD', 'DD-MM', 'Month D', weekday names, or 'tomorrow'."
+    )
 
 @app.get("/customer-info")
 async def get_customer_info(member_id: str = Query(..., min_length=10, max_length=10, description="10-digit member ID")):
