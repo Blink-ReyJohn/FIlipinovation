@@ -94,41 +94,34 @@ async def get_customer_info(member_id: str = Query(..., min_length=10, max_lengt
     user.pop('_id', None)  # remove internal MongoDB ID before returning
     return {"status": "success", "data": user}
 
-# Endpoint to check doctor availability by name
-@app.get("/doctor_availability_by_name/{doctor_name}/{date}") 
+@app.get("/doctor_availability_by_name/{doctor_name}/{date}")
 async def check_doctor_availability_by_name(doctor_name: str, date: str):
     try:
-        # Decode the doctor name and date (handle spaces and special characters)
-        doctor_name = unquote(doctor_name)  # Decode the doctor name
-        formatted_date = format_date(date)  # Get the formatted date
-        
-        # Fetch the doctor by name (case-insensitive match)
+        doctor_name = unquote(doctor_name)
+        formatted_date = format_date(date)
+
         doctor = doctors_collection.find_one({
-            "name": {"$regex": doctor_name, "$options": "i"}  # Case-insensitive search
+            "name": {"$regex": doctor_name, "$options": "i"}
         })
 
         if not doctor:
             raise HTTPException(status_code=404, detail=f"Doctor '{doctor_name}' not found.")
         
-        # Check the availability on the specified date (e.g., May 13)
         schedule = doctor.get("schedule", {}).get("May", {}).get(formatted_date)
 
-        # If there's a schedule, check for available slots
         if schedule:
             unavailable_slots = [time for time, slot in schedule.items() if slot.get("available") != "yes"]
             if unavailable_slots:
                 message = f"Dr. {doctor_name} is available on {formatted_date}, except {', '.join(unavailable_slots)}."
             else:
                 message = f"Dr. {doctor_name} is available on {formatted_date}."
-            
-            # Return only the availability message and doctor's name (reduce the data)
+
             return {
                 "status": "success",
                 "message": message,
                 "doctor": {"name": doctor.get("name"), "message": message}
             }
         else:
-            # If no schedule exists for that date, inform the user
             return {
                 "status": "success",
                 "message": f"Dr. {doctor_name} is not available on {formatted_date}.",
