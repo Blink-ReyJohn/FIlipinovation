@@ -42,30 +42,34 @@ def serialize_doctor(doctor):
     return None
 
 def format_date(date_str: str) -> str:
-    today = datetime.now(timezone('Asia/Manila')).date()
-    if date_str.strip().lower() == "tomorrow":
-        return (today + timedelta(days=1)).strftime("%b %d")
-    try:
-        date_obj = datetime.strptime(date_str.strip(), "%b %d")
-        date_obj = date_obj.replace(year=today.year)
-        if date_obj.date() < today:
-            date_obj = date_obj.replace(year=today.year + 1)
-        return date_obj.strftime("%b %d")
-    except ValueError:
-        pass
-    date_formats = ["%m-%d", "%d-%m", "%b %d", "%A", "tomorrow"]
-    for fmt in date_formats:
+    date_str = date_str.strip().lower()
+
+    # Handle 'tomorrow'
+    if date_str == "tomorrow":
+        return datetime.now().strftime("%d")
+
+    # Handle weekday names
+    weekdays = {day.lower(): i for i, day in enumerate(calendar.day_name)}
+    if date_str in weekdays:
+        today = datetime.now()
+        today_weekday = today.weekday()
+        target_weekday = weekdays[date_str]
+        days_ahead = (target_weekday - today_weekday + 7) % 7
+        if days_ahead == 0:
+            days_ahead = 7
+        target_date = today + timedelta(days=days_ahead)
+        return target_date.strftime("%d")  # Only return day as string
+
+    # Try parsing 'May 21', '21 May'
+    for fmt in ["%B %d", "%d %B", "%m-%d", "%d-%m"]:
         try:
-            date_obj = datetime.strptime(date_str.strip(), fmt).date()
-            if date_obj < today:
-                raise HTTPException(status_code=400, detail="The selected date has already passed.")
-            return date_obj.strftime("%b %d")
+            parsed_date = datetime.strptime(date_str, fmt)
+            return parsed_date.strftime("%d")  # Only return day part like "21"
         except ValueError:
             continue
-    raise HTTPException(
-        status_code=400,
-        detail="Invalid date format. Use 'MM-DD', 'DD-MM', 'Month D', weekday names, or 'tomorrow'."
-    )
+
+    # If all formats fail
+    raise HTTPException(status_code=400, detail="Invalid date format. Use 'MM-DD', 'DD-MM', 'Month D', weekday names, or 'tomorrow'.")
 
 @app.get("/customer-info")
 async def get_customer_info(member_id: str = Query(..., min_length=10, max_length=10, description="10-digit member ID")):
