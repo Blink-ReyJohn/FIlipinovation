@@ -138,38 +138,54 @@ async def check_user(user_id: str):
         raise HTTPException(status_code=500, detail=f"An unexpected error occurred: {str(e)}")
 
 @app.post("/book_appointment")
-async def book_appointment(appointment_request: AppointmentRequest):
+async def book_appointment(
+    user_id: str = Query(...),
+    doctor_specialization: str = Query(...),
+    date: str = Query(...),
+    time: str = Query(...)
+):
     try:
-        doctor_specialization = appointment_request.doctor_specialization.lower()
-        user = filipinovation_users.find_one({"user_id": appointment_request.user_id})
+        doctor_specialization_lower = doctor_specialization.lower()
+        user = filipinovation_users.find_one({"user_id": user_id})
         if not user:
-            raise HTTPException(status_code=404, detail=f"User with ID {appointment_request.user_id} not found.")
-        doctor = doctors_collection.find_one({"field": {"$regex": doctor_specialization, "$options": "i"}})
+            raise HTTPException(status_code=404, detail=f"User with ID {user_id} not found.")
+
+        doctor = doctors_collection.find_one({"field": {"$regex": doctor_specialization_lower, "$options": "i"}})
         if not doctor:
-            raise HTTPException(status_code=404, detail=f"Doctor with specialization '{doctor_specialization}' not found.")
-        formatted_date = format_date(appointment_request.date)
+            raise HTTPException(status_code=404, detail=f"Doctor with specialization '{doctor_specialization_lower}' not found.")
+
+        formatted_date = format_date(date)
         schedule = doctor.get("schedule", {}).get("May", {}).get(formatted_date)
         if not schedule:
             raise HTTPException(status_code=400, detail=f"Doctor is not available on {formatted_date}.")
-        if appointment_request.time not in schedule:
-            raise HTTPException(status_code=400, detail=f"Time '{appointment_request.time}' is not available for {doctor_specialization} on {formatted_date}.")
-        schedule[appointment_request.time]["available"] = "no"
+
+        if time not in schedule:
+            raise HTTPException(status_code=400, detail=f"Time '{time}' is not available for {doctor_specialization_lower} on {formatted_date}.")
+
+        # Mark time slot as no longer available
+        schedule[time]["available"] = "no"
+
         doctors_collection.update_one(
             {"_id": doctor["_id"]},
-            {"$set": {"schedule.May." + formatted_date: schedule}}
+            {"$set": {f"schedule.May.{formatted_date}": schedule}}
         )
+
         appointment_data = {
-            "user_id": appointment_request.user_id,
-            "doctor_specialization": doctor_specialization,
+            "user_id": user_id,
+            "doctor_specialization": doctor_specialization_lower,
             "date": formatted_date,
-            "time": appointment_request.time,
+            "time": time,
         }
         appointments_collection.insert_one(appointment_data)
+
         user_email = user.get("email")
         if not user_email:
             raise HTTPException(status_code=404, detail="User email not found.")
-        send_appointment_confirmation_email(user_email, doctor, appointment_request)
+
+        send_appointment_confirmation_email(user_email, doctor, appointment_data)
+
         return {"status": "success", "message": "Appointment successfully booked.", "data": appointment_data}
+
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"An unexpected error occurred: {str(e)}")
 
