@@ -50,12 +50,10 @@ async def get_customer_info(member_id: str = Query(..., min_length=10, max_lengt
     return {"status": "success", "data": user}
 
 @app.get("/doctor_availability_by_name")
-async def check_doctor_availability_by_name(doctor_name: str, month: str, day: int):
+async def check_doctor_availability_by_name(doctor_name: str, month: str, day: str):
     try:
         doctor_name = unquote(doctor_name)
-
-        # Compose formatted_date as in your DB keys
-        formatted_date = f"{month} {day}"
+        formatted_date = f"{month} {day}"  # e.g., "May 21"
 
         doctor = doctors_collection.find_one({
             "name": {"$regex": doctor_name, "$options": "i"}
@@ -85,7 +83,6 @@ async def check_doctor_availability_by_name(doctor_name: str, month: str, day: i
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"An unexpected error occurred: {str(e)}")
-
 
 @app.get("/check_user/{user_id}")
 async def check_user(user_id: str):
