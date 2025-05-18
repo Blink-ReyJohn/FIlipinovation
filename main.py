@@ -49,6 +49,9 @@ async def get_customer_info(member_id: str = Query(..., min_length=10, max_lengt
     user.pop('_id', None)
     return {"status": "success", "data": user}
 
+from datetime import datetime
+from fastapi import HTTPException
+
 @app.get("/doctor_availability_by_name")
 async def check_doctor_availability_by_name(doctor_name: str = "", month: str = "", day: str = ""):
     try:
@@ -83,19 +86,20 @@ async def check_doctor_availability_by_name(doctor_name: str = "", month: str = 
         if not doctor:
             raise HTTPException(status_code=404, detail=f"Doctor '{doctor_name}' not found.")
 
-        schedule = doctor.get("schedule", {}).get(month, {}).get(formatted_date)
-        if schedule:
-            available_times = []
-            unavailable_times = []
+        schedule = doctor.get("schedule", [])
+        # Filter schedule entries for the requested date
+        day_schedule = [entry for entry in schedule if entry.get("date") == formatted_date]
 
-            for time, slot in schedule.items():
-                (available_times if slot.get("available") == "yes" else unavailable_times).append(time)
+        if day_schedule:
+            available_times = [entry["time"] for entry in day_schedule if entry.get("available") == "yes"]
+            unavailable_times = [entry["time"] for entry in day_schedule if entry.get("available") != "yes"]
 
             if available_times:
                 sorted_times = sorted(available_times, key=lambda t: datetime.strptime(t, "%I:%M %p"))
                 start = datetime.strptime(sorted_times[0], "%I:%M %p").strftime("%-I %p")
                 end = datetime.strptime(sorted_times[-1], "%I:%M %p").strftime("%-I %p")
                 time_range = f"{start} to {end}"
+
                 if unavailable_times:
                     unavailable_hours = [datetime.strptime(t, "%I:%M %p").strftime("%-I %p") for t in unavailable_times]
                     message = f"Dr. {doctor_name} is available on {formatted_date} from {time_range}, except {', '.join(unavailable_hours)}."
@@ -116,7 +120,6 @@ async def check_doctor_availability_by_name(doctor_name: str = "", month: str = 
         raise e
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"An unexpected error occurred: {str(e)}")
-
 
 @app.get("/check_user/{user_id}")
 async def check_user(user_id: str):
