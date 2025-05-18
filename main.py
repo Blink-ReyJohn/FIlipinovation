@@ -53,7 +53,11 @@ async def get_customer_info(member_id: str = Query(..., min_length=10, max_lengt
 async def check_doctor_availability_by_name(doctor_name: str, month: str, day: str):
     try:
         doctor_name = unquote(doctor_name)
-        formatted_date = f"{month} {day}"  # e.g., "May 21"
+
+        if not month or not day:
+            raise HTTPException(status_code=400, detail="Both 'month' and 'day' query parameters are required")
+
+        formatted_date = f"{month} {day}"
 
         doctor = doctors_collection.find_one({
             "name": {"$regex": doctor_name, "$options": "i"}
