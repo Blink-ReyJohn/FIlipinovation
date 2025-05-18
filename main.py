@@ -2,7 +2,6 @@ import re
 import spacy
 import calendar
 import smtplib
-import pytz
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.mime.image import MIMEImage
@@ -30,8 +29,6 @@ hmo_users = hmo_db["users"]
 
 nlp = spacy.load("en_core_web_sm")
 
-PHT = pytz.timezone("Asia/Manila")
-
 class AppointmentRequest(BaseModel):
     user_id: str
     doctor_specialization: str
@@ -44,37 +41,6 @@ def serialize_doctor(doctor):
         return doctor
     return None
 
-def format_date(date_str: str) -> str:
-    date_str = date_str.strip().lower()
-    now = datetime.now(PHT)
-
-    if date_str == "tomorrow":
-        target_date = now + timedelta(days=1)
-        return target_date.strftime("%B %-d")  # "May 21"
-
-    weekdays = {day.lower(): i for i, day in enumerate(calendar.day_name)}
-    if date_str in weekdays:
-        today_weekday = now.weekday()
-        target_weekday = weekdays[date_str]
-        days_ahead = (target_weekday - today_weekday + 7) % 7
-        if days_ahead == 0:
-            days_ahead = 7
-        target_date = now + timedelta(days=days_ahead)
-        return target_date.strftime("%B %-d")
-
-    # Try parsing formats and return "Month D"
-    for fmt in ["%B %d", "%d %B", "%m-%d", "%d-%m"]:
-        try:
-            parsed_date = datetime.strptime(date_str, fmt)
-            return parsed_date.strftime("%B %-d")
-        except ValueError:
-            continue
-
-    raise HTTPException(
-        status_code=400,
-        detail="Invalid date format. Use 'MM-DD', 'DD-MM', 'Month D', weekday names, or 'tomorrow'."
-    )
-
 @app.get("/customer-info")
 async def get_customer_info(member_id: str = Query(..., min_length=10, max_length=10, description="10-digit member ID")):
     user = hmo_users.find_one({"member_id": member_id})
@@ -84,10 +50,12 @@ async def get_customer_info(member_id: str = Query(..., min_length=10, max_lengt
     return {"status": "success", "data": user}
 
 @app.get("/doctor_availability_by_name")
-async def check_doctor_availability_by_name(doctor_name: str, date: str):
+async def check_doctor_availability_by_name(doctor_name: str, month: str, day: int):
     try:
         doctor_name = unquote(doctor_name)
-        formatted_date = format_date(date)
+
+        # Compose formatted_date as in your DB keys
+        formatted_date = f"{month} {day}"
 
         doctor = doctors_collection.find_one({
             "name": {"$regex": doctor_name, "$options": "i"}
@@ -96,7 +64,7 @@ async def check_doctor_availability_by_name(doctor_name: str, date: str):
         if not doctor:
             raise HTTPException(status_code=404, detail=f"Doctor '{doctor_name}' not found.")
 
-        schedule = doctor.get("schedule", {}).get("May", {}).get(formatted_date)
+        schedule = doctor.get("schedule", {}).get(month, {}).get(formatted_date)
         if schedule:
             unavailable_slots = [time for time, slot in schedule.items() if slot.get("available") != "yes"]
             if unavailable_slots:
@@ -117,6 +85,7 @@ async def check_doctor_availability_by_name(doctor_name: str, date: str):
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"An unexpected error occurred: {str(e)}")
+
 
 @app.get("/check_user/{user_id}")
 async def check_user(user_id: str):
