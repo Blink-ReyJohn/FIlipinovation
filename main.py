@@ -75,24 +75,11 @@ async def get_customer_info(member_id: str = Query(..., min_length=10, max_lengt
     user.pop('_id', None)
     return {"status": "success", "data": user}
 
-@app.get("/doctor_availability_by_name/{doctor_name}/{date}")
-async def check_doctor_availability_by_name(doctor_name: str, date: str):
-    try:
-        doctor_name = unquote(doctor_name)
-        formatted_date = format_date(date)
-        doctor = doctors_collection.find_one({
-            "name": {"$regex": doctor_name, "$options": "i"}
-        })
-        if not doctor:
-            raise HTTPException(status_code=404, detail=f"Doctor '{doctor_name}' not found.")
-        schedule = doctor.get("schedule", {}).get("May", {}).get(formatted_date)
-        if schedule:
-            unavailable_slots = [time for time, slot in schedule.items() if slot.get("available") != "yes"]
-            if unavailable_slots:
-                message = f"Dr. {doctor_name} is available on {formatted_date}, except {', '.join(unavailable_slots)}."
-            else:
-                message = f"Dr. {doctor_name} is available on {formatted_date}."
-            return {
+class DoctorAvailabilityRequest(BaseModel):
+    doctor_name: str
+    date: str
+
+
                 "status": "success",
                 "message": message,
                 "doctor": {"name": doctor.get("name"), "message": message}
@@ -103,6 +90,7 @@ async def check_doctor_availability_by_name(doctor_name: str, date: str):
                 "message": f"Dr. {doctor_name} is not available on {formatted_date}.",
                 "doctor": {"name": doctor.get("name"), "message": f"Dr. {doctor_name} is not available on {formatted_date}."}
             }
+
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"An unexpected error occurred: {str(e)}")
 
