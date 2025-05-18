@@ -66,11 +66,24 @@ async def check_doctor_availability_by_name(doctor_name: str, month: str, day: s
 
         schedule = doctor.get("schedule", {}).get(month, {}).get(formatted_date)
         if schedule:
-            unavailable_slots = [time for time, slot in schedule.items() if slot.get("available") != "yes"]
-            if unavailable_slots:
-                message = f"Dr. {doctor_name} is available on {formatted_date}, except {', '.join(unavailable_slots)}."
+            available_times = []
+            unavailable_times = []
+
+            for time, slot in schedule.items():
+                (available_times if slot.get("available") == "yes" else unavailable_times).append(time)
+
+            if available_times:
+                sorted_times = sorted(available_times, key=lambda t: datetime.strptime(t, "%I:%M %p"))
+                start = datetime.strptime(sorted_times[0], "%I:%M %p").strftime("%-I %p")
+                end = datetime.strptime(sorted_times[-1], "%I:%M %p").strftime("%-I %p")
+                time_range = f"{start} to {end}"
+                if unavailable_times:
+                    unavailable_hours = [datetime.strptime(t, "%I:%M %p").strftime("%-I %p") for t in unavailable_times]
+                    message = f"Dr. {doctor_name} is available on {formatted_date} from {time_range}, except {', '.join(unavailable_hours)}."
+                else:
+                    message = f"Dr. {doctor_name} is available on {formatted_date} from {time_range}."
             else:
-                message = f"Dr. {doctor_name} is available on {formatted_date}."
+                message = f"Dr. {doctor_name} is not available on {formatted_date}."
         else:
             message = f"Dr. {doctor_name} is not available on {formatted_date}."
 
@@ -82,7 +95,6 @@ async def check_doctor_availability_by_name(doctor_name: str, month: str, day: s
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"An unexpected error occurred: {str(e)}")
-
 
 @app.get("/check_user/{user_id}")
 async def check_user(user_id: str):
