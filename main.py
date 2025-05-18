@@ -50,10 +50,29 @@ async def get_customer_info(member_id: str = Query(..., min_length=10, max_lengt
     return {"status": "success", "data": user}
 
 @app.get("/doctor_availability_by_name")
-async def check_doctor_availability_by_name(doctor_name: str, month: str, day: str):
+async def check_doctor_availability_by_name(doctor_name: str = "", month: str = "", day: str = ""):
     try:
-        if not doctor_name or not month or not day:
-            raise HTTPException(status_code=400, detail="All parameters 'doctor_name', 'month', and 'day' are required.")
+        missing = []
+        if not doctor_name:
+            missing.append("doctor_name")
+        if not month:
+            missing.append("month")
+        if not day:
+            missing.append("day")
+
+        if missing:
+            received = {
+                "doctor_name": doctor_name,
+                "month": month,
+                "day": day
+            }
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "error": f"Missing required parameter(s): {', '.join(missing)}.",
+                    "received": received
+                }
+            )
 
         formatted_date = f"{month} {day}"
 
@@ -93,8 +112,11 @@ async def check_doctor_availability_by_name(doctor_name: str, month: str, day: s
             "doctor": {"name": doctor.get("name"), "message": message}
         }
 
+    except HTTPException as e:
+        raise e
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"An unexpected error occurred: {str(e)}")
+
 
 @app.get("/check_user/{user_id}")
 async def check_user(user_id: str):
