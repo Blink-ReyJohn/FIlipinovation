@@ -15,16 +15,17 @@ from urllib.parse import quote, unquote
 from datetime import datetime, timedelta
 from geopy.distance import geodesic
 
-# MongoDB connection
+app = FastAPI()
+
 client = MongoClient("mongodb+srv://reyjohnandraje2002:ReyJohn17@concentrix.txv3t.mongodb.net/?retryWrites=true&w=majority&appName=Concentrix")
-db = client["Filipinovation"]
-doctors_collection = db["doctors"]
-users_collection = db["users"]
-appointments_collection = db["appointments"]
-hmo_db = client["hmo_system"]
 filipinovation_db = client["Filipinovation"]
-users_collection = hmo_db["users"]  # User info here
-services_collection = filipinovation_db["services"]  # Service costs here
+hmo_db = client["hmo_system"]
+
+doctors_collection = filipinovation_db["doctors"]
+filipinovation_users = filipinovation_db["users"]
+appointments_collection = filipinovation_db["appointments"]
+services_collection = filipinovation_db["services"]
+hmo_users = hmo_db["users"]
 
 app = FastAPI()
 
@@ -140,20 +141,16 @@ async def check_doctor_availability_by_name(doctor_name: str, date: str):
 @app.get("/check_user/{user_id}")
 async def check_user(user_id: str):
     try:
-        user = users_collection.find_one({"user_id": user_id})
-        
+        user = filipinovation_users.find_one({"user_id": user_id})
         if user:
             user.pop('_id', None)
             return {"status": "success", "message": f"User with ID {user_id} found.", "data": user}
         else:
             raise HTTPException(status_code=404, detail=f"User with ID {user_id} not found.")
-
     except errors.ServerSelectionTimeoutError:
         raise HTTPException(status_code=500, detail="Database connection error. Please try again later.")
-    
     except errors.PyMongoError as e:
         raise HTTPException(status_code=500, detail=f"MongoDB error: {str(e)}")
-
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"An unexpected error occurred: {str(e)}")
 
