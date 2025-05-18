@@ -79,7 +79,27 @@ class DoctorAvailabilityRequest(BaseModel):
     doctor_name: str
     date: str
 
+@app.post("/doctor_availability_by_name")
+async def check_doctor_availability_by_name(request: DoctorAvailabilityRequest):
+    try:
+        doctor_name = unquote(request.doctor_name)
+        formatted_date = format_date(request.date)  # assuming you have a `format_date` function
 
+        doctor = doctors_collection.find_one({
+            "name": {"$regex": doctor_name, "$options": "i"}
+        })
+
+        if not doctor:
+            raise HTTPException(status_code=404, detail=f"Doctor '{doctor_name}' not found.")
+
+        schedule = doctor.get("schedule", {}).get("May", {}).get(formatted_date)
+        if schedule:
+            unavailable_slots = [time for time, slot in schedule.items() if slot.get("available") != "yes"]
+            if unavailable_slots:
+                message = f"Dr. {doctor_name} is available on {formatted_date}, except {', '.join(unavailable_slots)}."
+            else:
+                message = f"Dr. {doctor_name} is available on {formatted_date}."
+            return {
                 "status": "success",
                 "message": message,
                 "doctor": {"name": doctor.get("name"), "message": message}
@@ -93,7 +113,6 @@ class DoctorAvailabilityRequest(BaseModel):
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"An unexpected error occurred: {str(e)}")
-
 @app.get("/check_user/{user_id}")
 async def check_user(user_id: str):
     try:
