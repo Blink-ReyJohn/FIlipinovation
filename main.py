@@ -75,15 +75,11 @@ async def get_customer_info(member_id: str = Query(..., min_length=10, max_lengt
     user.pop('_id', None)
     return {"status": "success", "data": user}
 
-class DoctorAvailabilityRequest(BaseModel):
-    doctor_name: str
-    date: str
-
-@app.post("/doctor_availability_by_name")
-async def check_doctor_availability_by_name(request: DoctorAvailabilityRequest):
+@app.get("/doctor_availability_by_name")
+async def check_doctor_availability_by_name(doctor_name: str, date: str):
     try:
-        doctor_name = unquote(request.doctor_name)
-        formatted_date = format_date(request.date)  # assuming you have a `format_date` function
+        doctor_name = unquote(doctor_name)
+        formatted_date = format_date(date)
 
         doctor = doctors_collection.find_one({
             "name": {"$regex": doctor_name, "$options": "i"}
@@ -113,6 +109,7 @@ async def check_doctor_availability_by_name(request: DoctorAvailabilityRequest):
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"An unexpected error occurred: {str(e)}")
+
 @app.get("/check_user/{user_id}")
 async def check_user(user_id: str):
     try:
