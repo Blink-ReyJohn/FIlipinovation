@@ -2,6 +2,7 @@ import re
 import spacy
 import calendar
 import smtplib
+from pytz import timezone
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.mime.image import MIMEImage
@@ -292,7 +293,8 @@ async def get_nearest_available_doctor(user_id: str, doctor_specialization: str)
 @app.get("/request-loa")
 async def request_loa(
     member_id: str = Query(..., description="10-digit member ID"),
-    service_type: str = Query(..., description="Type of service requested")
+    service_type: str = Query(..., description="Type of service requested"),
+    background_tasks: BackgroundTasks = None
 ):
     try:
         user = hmo_users.find_one({"member_id": member_id})
@@ -316,13 +318,17 @@ async def request_loa(
                 "user_plan": plan,
                 "remaining_credits": remaining_credits
             }
+
         new_balance = remaining_credits - service_cost
+        approval_date = datetime.now(timezone("Asia/Manila")).strftime("%Y-%m-%d %H:%M")
+
         new_request = {
-            "date": datetime.now(timezone("Asia/Manila")).strftime("%Y-%m-%d %H:%M"),
+            "date": approval_date,
             "service_type": service_type,
             "amount": service_cost,
             "status": "approved"
         }
+
         hmo_users.update_one(
             {"member_id": member_id},
             {
@@ -330,6 +336,25 @@ async def request_loa(
                 "$set": {"remaining_credits": new_balance}
             }
         )
+
+        # Send email in background
+        if user.get("email"):
+            to_email = user["email"]
+            subject = f"LOA Approved for {service_type}"
+            body = (
+                f"Dear {user.get('name', 'Member')},\n\n"
+                f"Your Letter of Authorization (LOA) request for {service_type} has been approved.\n\n"
+                f"Details:\n"
+                f"- Date: {approval_date}\n"
+                f"- Plan: {plan}\n"
+                f"- Amount Deducted: ₱{service_cost:.2f}\n"
+                f"- New Balance: ₱{new_balance:.2f}\n\n"
+                f"Thank you for using our service.\n\n"
+                f"Best regards,\n"
+                f"Your HMO Team"
+            )
+            background_tasks.add_task(send_email, to_email, subject, body)
+
         return {
             "status": "approved",
             "message": f"LOA approved for {service_type}. Deducted ₱{service_cost}.",
@@ -337,8 +362,29 @@ async def request_loa(
             "previous_balance": remaining_credits,
             "new_balance": new_balance
         }
+
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error processing LOA: {str(e)}")
+
+
+def send_email(to_email: str, subject: str, body: str):
+    SMTP_SERVER = "smtp.example.com"
+    SMTP_PORT = 587
+    SMTP_USER = "your-email@example.com"
+    SMTP_PASSWORD = "your-email-password"
+
+    msg = MIMEText(body, "plain")
+    msg["Subject"] = subject
+    msg["From"] = SMTP_USER
+    msg["To"] = to_email
+
+    try:
+        with smtplib.SMTP(SMTP_SERVER, SMTP_PORT) as server:
+            server.starttls()
+            server.login(SMTP_USER, SMTP_PASSWORD)
+            server.send_message(msg)
+    except Exception as e:
+        print(f"Failed to send email to {to_email}: {str(e)}")
 
 @app.exception_handler(Exception)
 async def generic_exception_handler(request: Request, exc: Exception):
