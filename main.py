@@ -7,7 +7,7 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.mime.image import MIMEImage
 from pytz import timezone
-from fastapi import FastAPI, HTTPException, Request, Body, Query
+from fastapi import FastAPI, HTTPException, Request, Body, Query, BackgroundTasks
 from pydantic import BaseModel
 from pymongo import MongoClient, errors
 from typing import Optional
