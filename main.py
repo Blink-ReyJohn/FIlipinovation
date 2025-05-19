@@ -137,6 +137,17 @@ async def check_user(user_id: str):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"An unexpected error occurred: {str(e)}")
 
+def normalize_time_string(time_str: str) -> str:
+    time_str = time_str.strip().upper().replace(" ", "")
+    formats = ["%I%p", "%I:%M%p", "%I:%M %p", "%I %p"]
+    for fmt in formats:
+        try:
+            parsed = datetime.strptime(time_str, fmt)
+            return parsed.strftime("%I:%M %p")
+        except ValueError:
+            continue
+    raise ValueError(f"Invalid time format: '{time_str}'")
+
 def send_appointment_confirmation_email(user_email: str, doctor: dict, date: str, time: str):
     try:
         html_content = f"""
@@ -146,15 +157,15 @@ def send_appointment_confirmation_email(user_email: str, doctor: dict, date: str
             </div>
             <div style="margin:10px 0;font-size:16px;">
                 Dear {user_email},<br>
-                Your appointment has been <strong>successfully booked</strong>.<br><br>
+                Your appointment has been successfully booked.<br><br>
                 <strong>Appointment Details:</strong><br>
                 <strong>Doctor:</strong> Dr. {doctor['name']}<br>
                 <strong>Specialization:</strong> {doctor['field']}<br>
                 <strong>Hospital:</strong> {doctor['hospital']}<br>
                 <strong>Date:</strong> {date}<br>
                 <strong>Time:</strong> {time}<br><br>
-                Please arrive on time for your appointment.<br>
-                Thank you for choosing our service!
+                Please be sure to arrive on time for your appointment.<br>
+                Thank you for choosing us! 
             </div>
             <div style="margin-top:10px;">
                 Best Regards,<br>
@@ -167,75 +178,73 @@ def send_appointment_confirmation_email(user_email: str, doctor: dict, date: str
         msg['To'] = user_email
         msg['Subject'] = "Appointment Confirmation"
         msg.attach(MIMEText(html_content, 'html'))
-
         with smtplib.SMTP('smtp.gmail.com', 587) as server:
             server.starttls()
             server.login("reyjohnandraje2002@gmail.com", "xwkb uxzu wwjk mzgq")
             server.sendmail(msg['From'], msg['To'], msg.as_string())
-
     except Exception as e:
         print(f"Failed to send email: {str(e)}")
 
-
-@app.post("/book_appointment")
+@app.get("/book_appointment")
 async def book_appointment(
-    user_id: str = Query(..., description="User ID"),
-    doctor_specialization: str = Query(..., description="Doctor specialization"),
-    date: str = Query(..., description="Appointment date in format like 'May 1'"),
-    time: str = Query(..., description="Appointment time like '09:00 AM'")
+    user_id: str = Query(...),
+    doctor_specialization: str = Query(...),
+    date: str = Query(...),
+    time: str = Query(...)
 ):
     try:
-        # Normalize specialization
-        doctor_specialization_lower = doctor_specialization.lower()
-
-        # Find user
         user = filipinovation_users.find_one({"user_id": user_id})
         if not user:
             raise HTTPException(status_code=404, detail=f"User with ID {user_id} not found.")
 
-        # Find doctor by specialization (case-insensitive regex)
-        doctor = doctors_collection.find_one({"field": {"$regex": doctor_specialization_lower, "$options": "i"}})
+        doctor = doctors_collection.find_one({"field": {"$regex": doctor_specialization, "$options": "i"}})
         if not doctor:
             raise HTTPException(status_code=404, detail=f"Doctor with specialization '{doctor_specialization}' not found.")
 
-        # Check doctor availability
-        schedule = doctor.get("schedule", [])
-        # schedule is now a list of {date, time, available} dicts
-        slot = next((s for s in schedule if s["date"] == date and s["time"] == time), None)
-        if not slot:
-            raise HTTPException(status_code=400, detail=f"Doctor is not available on {date} at {time}.")
-        if slot.get("available") != "yes":
-            raise HTTPException(status_code=400, detail=f"Time '{time}' is already booked for {date}.")
+        normalized_time = normalize_time_string(time)
 
-        # Update slot availability in DB: mark as "no"
-        # Since schedule is an array, we update the matched element using MongoDB positional operator
-        doctors_collection.update_one(
-            {"_id": doctor["_id"], "schedule.date": date, "schedule.time": time},
-            {"$set": {"schedule.$.available": "no"}}
+        schedule = doctor.get("schedule", [])
+        slot = next(
+            (
+                s for s in schedule
+                if s.get("date", "").strip().lower() == date.strip().lower()
+                and normalize_time_string(s.get("time", "")) == normalized_time
+            ),
+            None
         )
 
-        # Save appointment record
+        if not slot:
+            raise HTTPException(status_code=400, detail=f"Doctor is not available on {date} at {normalized_time}.")
+        if slot.get("available") != "yes":
+            raise HTTPException(status_code=400, detail=f"Slot on {date} at {normalized_time} is already booked.")
+
+        # Mark the slot as unavailable
+        slot["available"] = "no"
+        doctors_collection.update_one(
+            {"_id": doctor["_id"]},
+            {"$set": {"schedule": schedule}}
+        )
+
         appointment_data = {
             "user_id": user_id,
-            "doctor_specialization": doctor_specialization_lower,
+            "doctor_specialization": doctor_specialization.lower(),
             "date": date,
-            "time": time,
+            "time": normalized_time,
         }
         appointments_collection.insert_one(appointment_data)
 
-        # Send confirmation email
         user_email = user.get("email")
         if not user_email:
             raise HTTPException(status_code=404, detail="User email not found.")
-        send_appointment_confirmation_email(user_email, doctor, date, time)
+
+        send_appointment_confirmation_email(user_email, doctor, date, normalized_time)
 
         return {"status": "success", "message": "Appointment successfully booked.", "data": appointment_data}
 
-    except HTTPException as e:
-        raise e
+    except ValueError as ve:
+        raise HTTPException(status_code=400, detail=str(ve))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"An unexpected error occurred: {str(e)}")
-
 
 @app.get("/nearest_available_doctor/{user_id}/{doctor_specialization}")
 async def get_nearest_available_doctor(user_id: str, doctor_specialization: str):
