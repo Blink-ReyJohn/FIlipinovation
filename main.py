@@ -138,113 +138,120 @@ async def check_user(user_id: str):
         raise HTTPException(status_code=500, detail=f"An unexpected error occurred: {str(e)}")
 
 def normalize_time_string(time_str: str) -> str:
-    time_str = time_str.strip().upper().replace(" ", "")
-    formats = ["%I%p", "%I:%M%p", "%I:%M %p", "%I %p"]
-    for fmt in formats:
-        try:
-            parsed = datetime.strptime(time_str, fmt)
-            return parsed.strftime("%I:%M %p")
-        except ValueError:
-            continue
-    raise ValueError(f"Invalid time format: '{time_str}'")
-
-def send_appointment_confirmation_email(user_email: str, doctor: dict, date: str, time: str):
     try:
-        html_content = f"""
-        <div style="max-width:600px;margin:0 auto;background-color:#ffffff;padding:20px;border:1px solid #ddd;border-radius:8px;font-family:Arial,sans-serif;color:#333;">
-            <div style="text-align:center;">
-                <img src="https://static.vecteezy.com/system/resources/thumbnails/017/177/954/small_2x/round-medical-cross-symbol-on-transparent-background-free-png.png" alt="Medical Logo" style="max-height:85px;"> 
-            </div>
-            <div style="margin:10px 0;font-size:16px;">
-                Dear {user_email},<br>
-                Your appointment has been successfully booked.<br><br>
-                <strong>Appointment Details:</strong><br>
-                <strong>Doctor:</strong> Dr. {doctor['name']}<br>
-                <strong>Specialization:</strong> {doctor['field']}<br>
-                <strong>Hospital:</strong> {doctor['hospital']}<br>
-                <strong>Date:</strong> {date}<br>
-                <strong>Time:</strong> {time}<br><br>
-                Please be sure to arrive on time for your appointment.<br>
-                Thank you for choosing us! 
-            </div>
-            <div style="margin-top:10px;">
-                Best Regards,<br>
-                <strong>Medical Support Team</strong> 
-            </div>
-        </div>
-        """
-        msg = MIMEMultipart()
-        msg['From'] = "reyjohnandraje2002@gmail.com"
-        msg['To'] = user_email
-        msg['Subject'] = "Appointment Confirmation"
-        msg.attach(MIMEText(html_content, 'html'))
-        with smtplib.SMTP('smtp.gmail.com', 587) as server:
-            server.starttls()
-            server.login("reyjohnandraje2002@gmail.com", "xwkb uxzu wwjk mzgq")
-            server.sendmail(msg['From'], msg['To'], msg.as_string())
-    except Exception as e:
-        print(f"Failed to send email: {str(e)}")
+        parsed_time = datetime.strptime(time_str.replace(" ", "").upper(), "%I:%M%p")
+    except ValueError:
+        try:
+            parsed_time = datetime.strptime(time_str.replace(" ", "").upper(), "%I%p")
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid time format. Use e.g., '9AM', '3:00PM'.")
+    return parsed_time.strftime("%-I:%M %p")
 
 @app.get("/book_appointment")
-async def book_appointment(
-    user_id: str = Query(...),
-    doctor_specialization: str = Query(...),
-    date: str = Query(...),
-    time: str = Query(...)
-):
+async def book_appointment(user_id: str, doctor_specialization: str, date: str, time: str):
     try:
+        doctor_specialization_lower = doctor_specialization.lower()
+        normalized_time = normalize_time_string(time)
+
+        # Validate user
         user = filipinovation_users.find_one({"user_id": user_id})
         if not user:
             raise HTTPException(status_code=404, detail=f"User with ID {user_id} not found.")
+        user_email = user.get("email")
+        if not user_email:
+            raise HTTPException(status_code=400, detail="User email is missing.")
 
-        doctor = doctors_collection.find_one({"field": {"$regex": doctor_specialization, "$options": "i"}})
+        # Validate doctor
+        doctor = doctors_collection.find_one({
+            "field": {"$regex": doctor_specialization_lower, "$options": "i"}
+        })
         if not doctor:
-            raise HTTPException(status_code=404, detail=f"Doctor with specialization '{doctor_specialization}' not found.")
+            raise HTTPException(status_code=404, detail=f"No doctor with specialization '{doctor_specialization}' found.")
 
-        normalized_time = normalize_time_string(time)
-
+        # Validate schedule
         schedule = doctor.get("schedule", [])
-        slot = next(
-            (
-                s for s in schedule
-                if s.get("date", "").strip().lower() == date.strip().lower()
-                and normalize_time_string(s.get("time", "")) == normalized_time
-            ),
+        matching_slot = next(
+            (s for s in schedule if s.get("date", "").lower() == date.lower()
+             and normalize_time_string(s.get("time", "")) == normalized_time),
             None
         )
-
-        if not slot:
+        if not matching_slot:
             raise HTTPException(status_code=400, detail=f"Doctor is not available on {date} at {normalized_time}.")
-        if slot.get("available") != "yes":
+        if matching_slot.get("available") != "yes":
             raise HTTPException(status_code=400, detail=f"Slot on {date} at {normalized_time} is already booked.")
 
-        # Mark the slot as unavailable
-        slot["available"] = "no"
+        # ✅ All checks passed — proceed to update and send confirmation
         doctors_collection.update_one(
-            {"_id": doctor["_id"]},
-            {"$set": {"schedule": schedule}}
+            {"_id": doctor["_id"], "schedule.date": date, "schedule.time": matching_slot["time"]},
+            {"$set": {"schedule.$.available": "no"}}
         )
 
         appointment_data = {
             "user_id": user_id,
-            "doctor_specialization": doctor_specialization.lower(),
+            "doctor_specialization": doctor_specialization_lower,
             "date": date,
-            "time": normalized_time,
+            "time": normalized_time
         }
         appointments_collection.insert_one(appointment_data)
 
-        user_email = user.get("email")
-        if not user_email:
-            raise HTTPException(status_code=404, detail="User email not found.")
-
         send_appointment_confirmation_email(user_email, doctor, date, normalized_time)
 
-        return {"status": "success", "message": "Appointment successfully booked.", "data": appointment_data}
+        return {
+            "status": "success",
+            "message": "Appointment successfully booked.",
+            "data": appointment_data
+        }
 
-    except ValueError as ve:
-        raise HTTPException(status_code=400, detail=str(ve))
+    except HTTPException as http_err:
+        return {
+            "status": "error",
+            "data": {
+                "detail": http_err.detail
+            }
+        }
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"An unexpected error occurred: {str(e)}")
+        print(f"[BOOK_APPOINTMENT_ERROR]: {str(e)}")
+        return {
+            "status": "error",
+            "data": {
+                "detail": "An unexpected error occurred."
+            }
+        }
+
+def send_appointment_confirmation_email(user_email: str, doctor: dict, date: str, time: str):
+    html_content = f"""
+    <div style="max-width:600px;margin:0 auto;background-color:#ffffff;padding:20px;border:1px solid #ddd;border-radius:8px;font-family:Arial,sans-serif;color:#333;">
+        <div style="text-align:center;">
+            <img src="https://static.vecteezy.com/system/resources/thumbnails/017/177/954/small_2x/round-medical-cross-symbol-on-transparent-background-free-png.png" alt="Medical Logo" style="max-height:85px;"> 
+        </div>
+        <div style="margin:10px 0;font-size:16px;">
+            Dear {user_email},<br>
+            Your appointment has been successfully booked.<br><br>
+            <strong>Appointment Details:</strong><br>
+            <strong>Doctor:</strong> Dr. {doctor['name']}<br>
+            <strong>Specialization:</strong> {doctor['field']}<br>
+            <strong>Hospital:</strong> {doctor['hospital']}<br>
+            <strong>Date:</strong> {date}<br>
+            <strong>Time:</strong> {time}<br><br>
+            Please be sure to arrive on time for your appointment.<br>
+            Thank you for choosing us! 
+        </div>
+        <div style="margin-top:10px;">
+            Best Regards,<br>
+            <strong>Medical Support Team</strong> 
+        </div>
+    </div>
+    """
+    msg = MIMEMultipart()
+    msg['From'] = "reyjohnandraje2002@gmail.com"
+    msg['To'] = user_email
+    msg['Subject'] = "Appointment Confirmation"
+    msg.attach(MIMEText(html_content, 'html'))
+
+    with smtplib.SMTP('smtp.gmail.com', 587) as server:
+        server.starttls()
+        server.login("reyjohnandraje2002@gmail.com", "xwkb uxzu wwjk mzgq")
+        server.sendmail(msg['From'], msg['To'], msg.as_string())
 
 @app.get("/nearest_available_doctor/{user_id}/{doctor_specialization}")
 async def get_nearest_available_doctor(user_id: str, doctor_specialization: str):
