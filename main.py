@@ -14,6 +14,7 @@ from typing import Optional
 from bson import ObjectId
 from urllib.parse import quote, unquote
 from datetime import datetime, timedelta
+from dateutil import parser as date_parser
 from geopy.distance import geodesic
 
 app = FastAPI()
@@ -49,12 +50,6 @@ async def get_customer_info(member_id: str = Query(..., min_length=10, max_lengt
         raise HTTPException(status_code=404, detail=f"User with member_id '{member_id}' not found.")
     user.pop('_id', None)
     return {"status": "success", "data": user}
-
-from datetime import datetime
-from fastapi import HTTPException
-
-from datetime import datetime
-from fastapi import HTTPException
 
 @app.get("/doctor_availability_by_name")
 async def check_doctor_availability_by_name(doctor_name: str = "", date: str = ""):
@@ -290,6 +285,17 @@ async def get_nearest_available_doctor(user_id: str, doctor_specialization: str)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"An unexpected error occurred: {str(e)}")
 
+def send_email(to_email: str, subject: str, body: str):
+    msg = MIMEText(body)
+    msg['From'] = "reyjohnandraje2002@gmail.com"
+    msg['To'] = to_email
+    msg['Subject'] = subject
+
+    with smtplib.SMTP('smtp.gmail.com', 587) as server:
+        server.starttls()
+        server.login("reyjohnandraje2002@gmail.com", "xwkb uxzu wwjk mzgq")  # Your fixed credentials here
+        server.sendmail(msg['From'], msg['To'], msg.as_string())
+
 @app.get("/request-loa")
 async def request_loa(
     member_id: str = Query(..., description="10-digit member ID"),
@@ -338,7 +344,7 @@ async def request_loa(
         )
 
         # Send email in background
-        if user.get("email"):
+        if user.get("email") and background_tasks:
             to_email = user["email"]
             subject = f"LOA Approved for {service_type}"
             body = (
@@ -366,25 +372,115 @@ async def request_loa(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error processing LOA: {str(e)}")
 
+def send_claim_email(user_email: str, user_name: str, validation_record: dict):
+    html_content = f"""
+    <html>
+        <body>
+            <p>Hi {user_name},</p>
+            <p>Your claim report dated <b>{validation_record['incident_date']}</b> has been processed.</p>
+            <p><b>Eligibility Status:</b> {'Eligible' if validation_record['eligible'] else 'Not Eligible'}</p>
+            <p><b>Reasons:</b> {'; '.join(validation_record['reasons']) if validation_record['reasons'] else 'None'}</p>
+            <p><i>Validated at: {validation_record['validated_at']}</i></p>
+            <p>Thank you,<br/>Your Insurance Team</p>
+        </body>
+    </html>
+    """
 
-def send_email(to_email: str, subject: str, body: str):
-    SMTP_SERVER = "smtp.example.com"
-    SMTP_PORT = 587
-    SMTP_USER = "your-email@example.com"
-    SMTP_PASSWORD = "your-email-password"
+    msg = MIMEMultipart()
+    msg['From'] = "reyjohnandraje2002@gmail.com"
+    msg['To'] = user_email
+    msg['Subject'] = "Claim Validation Result"
+    msg.attach(MIMEText(html_content, 'html'))
 
-    msg = MIMEText(body, "plain")
-    msg["Subject"] = subject
-    msg["From"] = SMTP_USER
-    msg["To"] = to_email
+    with smtplib.SMTP('smtp.gmail.com', 587) as server:
+        server.starttls()
+        server.login("reyjohnandraje2002@gmail.com", "xwkb uxzu wwjk mzgq")
+        server.sendmail(msg['From'], msg['To'], msg.as_string())
+
+@app.get("/validate-claim")
+async def validate_claim(
+    user_id: str = Query(..., description="Member ID"),
+    description: str = Query(..., description="Description of the incident"),
+    incident_date: str = Query(..., description="Date of the incident, e.g. 'May 12, 2025'")
+):
+    user = hmo_users.find_one({"member_id": user_id})
+    if not user:
+        return JSONResponse(status_code=404, content={"error": "User not found."})
+
+    now = datetime.now()
 
     try:
-        with smtplib.SMTP(SMTP_SERVER, SMTP_PORT) as server:
-            server.starttls()
-            server.login(SMTP_USER, SMTP_PASSWORD)
-            server.send_message(msg)
-    except Exception as e:
-        print(f"Failed to send email to {to_email}: {str(e)}")
+        incident_dt = date_parser.parse(incident_date)
+    except ValueError:
+        return JSONResponse(status_code=400, content={"error": "Invalid date format. Try 'May 12, 2025' or '2025-05-12'."})
+
+    days_since_incident = (now - incident_dt).days
+
+    recent_claims = []
+    for r in user.get("requests", []):
+        try:
+            claim_date = datetime.strptime(r["date"][:10], "%Y-%m-%d")
+            if claim_date >= now - timedelta(days=365):
+                recent_claims.append(r)
+        except:
+            continue
+
+    last_claim_date = None
+    if recent_claims:
+        try:
+            last_claim_date = max(datetime.strptime(r["date"][:10], "%Y-%m-%d") for r in recent_claims)
+        except:
+            pass
+
+    results = {
+        "eligible": True,
+        "reasons": [],
+        "timestamp": now.strftime("%Y-%m-%d %H:%M")
+    }
+
+    if len(recent_claims) > 2:
+        results["eligible"] = False
+        results["reasons"].append("Too many claims in the past 12 months.")
+
+    if last_claim_date and (now - last_claim_date).days < 30:
+        results["eligible"] = False
+        results["reasons"].append("A claim was filed within the last 30 days.")
+
+    if days_since_incident > 7:
+        results["eligible"] = False
+        results["reasons"].append("Incident reported more than 7 days after it occurred.")
+
+    validation_record = {
+        "incident_date": incident_dt.strftime("%Y-%m-%d"),
+        "description": description,
+        "eligible": results["eligible"],
+        "reasons": results["reasons"],
+        "validated_at": results["timestamp"]
+    }
+
+    hmo_users.update_one(
+        {"member_id": user_id},
+        {"$push": {"claims_validation": validation_record}}
+    )
+
+    # Send email notification if user email exists
+    user_email = user.get("email")
+    user_name = user.get("name", "User")
+    email_sent = False
+    if user_email:
+        try:
+            send_claim_email(user_email, user_name, validation_record)
+            email_sent = True
+        except Exception as e:
+            print(f"Error sending email: {e}")
+
+    return {
+        "member_id": user_id,
+        "eligible": results["eligible"],
+        "reasons": results["reasons"],
+        "validation_logged": True,
+        "email_sent": email_sent
+    }
 
 @app.exception_handler(Exception)
 async def generic_exception_handler(request: Request, exc: Exception):
