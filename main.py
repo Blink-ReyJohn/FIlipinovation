@@ -438,6 +438,7 @@ async def validate_claim(
         "timestamp": now.strftime("%Y-%m-%d %H:%M")
     }
 
+    # Validation rules
     if len(recent_claims) > 2:
         results["eligible"] = False
         results["reasons"].append("Too many claims in the past 12 months.")
@@ -474,13 +475,30 @@ async def validate_claim(
         except Exception as e:
             print(f"Error sending email: {e}")
 
-    return {
-        "member_id": user_id,
-        "eligible": results["eligible"],
-        "reasons": results["reasons"],
-        "validation_logged": True,
-        "email_sent": email_sent
-    }
+    if results["eligible"]:
+        # Send member data in response on success
+        return {
+            "member_id": user_id,
+            "eligible": True,
+            "member_data": {
+                "name": user.get("name"),
+                "email": user_email,
+                "plan": user.get("plan", {}).get("name", "Unknown") if isinstance(user.get("plan"), dict) else user.get("plan", "Unknown"),
+                "remaining_credits": user.get("remaining_credits"),
+                "requests": user.get("requests", [])
+            },
+            "validation_logged": True,
+            "email_sent": email_sent
+        }
+    else:
+        # On failure, just send the first reason
+        return {
+            "member_id": user_id,
+            "eligible": False,
+            "reason": results["reasons"][0] if results["reasons"] else "Not eligible for unknown reasons.",
+            "validation_logged": True,
+            "email_sent": email_sent
+        }
 
 @app.exception_handler(Exception)
 async def generic_exception_handler(request: Request, exc: Exception):
